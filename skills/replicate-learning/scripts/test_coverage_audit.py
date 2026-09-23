@@ -3,6 +3,8 @@
 
 import hashlib
 import json
+import os
+import shutil
 import sys
 import tempfile
 import unittest
@@ -14,7 +16,14 @@ FIXTURE_ROOT = SKILL_ROOT / "tests" / "fixtures" / "artifacts" / "v1"
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from coverage_audit import VIOLATION_CODES, audit_coverage  # noqa: E402
 from repository_scan import ScanOptions, scan_repository  # noqa: E402
-from test_repository_scan import build_fixture_repository, init_git_repo, run_git_bytes  # noqa: E402
+from test_repository_scan import (  # noqa: E402
+    build_fixture_repository,
+    commit_all,
+    create_junction_or_skip,
+    create_symlink_or_skip,
+    init_git_repo,
+    run_git_bytes,
+)
 
 FIXED_TIME = "2026-09-22T00:00:00Z"
 REPOSITORY_FIXTURE_ROOT = SKILL_ROOT / "tests" / "fixtures" / "repository_scanner"
@@ -76,6 +85,27 @@ class AuditFixture(unittest.TestCase):
         add_gitlink(repo)
         return repo, scan_repository(ScanOptions(root=repo, snapshot_kind=snapshot_kind,
                                                  generated_at=FIXED_TIME))
+
+    def build_git_symlink_repo(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        repo = Path(temporary.name) / "repo"
+        init_git_repo(repo, {"one.txt": b"1\n"})
+        blob = run_git_bytes(repo, "hash-object", "-w", "--stdin", input_bytes=b"external-target")
+        self.assertEqual(0, blob.returncode, blob.stderr)
+        object_id = blob.stdout.decode("ascii").strip()
+        indexed = run_git_bytes(
+            repo, "update-index", "--add", "--cacheinfo", f"120000,{object_id},link.txt",
+        )
+        self.assertEqual(0, indexed.returncode, indexed.stderr)
+        committed = run_git_bytes(repo, "commit", "--quiet", "--no-verify", "-m", "add symlink")
+        self.assertEqual(0, committed.returncode, committed.stderr)
+        artifacts = scan_repository(ScanOptions(
+            root=repo,
+            snapshot_kind="git-tree",
+            generated_at=FIXED_TIME,
+        ))
+        return repo, artifacts
 
 
 class PositiveAuditTests(AuditFixture):
@@ -158,7 +188,9 @@ class PositiveAuditTests(AuditFixture):
                 "DUPLICATE_PATH", "PATH_SET_MISMATCH", "UNSAFE_PATH", "V11_FIELD_MISSING",
                 "SURFACE_INVALID", "REASON_MISSING", "UNKNOWN_COUNT_MISMATCH", "UNKNOWN_REMAINS",
                 "SNAPSHOT_FILE_MISSING", "SNAPSHOT_SIZE_MISMATCH", "SNAPSHOT_HASH_MISMATCH",
-                "GIT_OBJECT_MISSING",
+                "GIT_OBJECT_MISSING", "VCS_OBJECT_MISMATCH", "TRACKED_FLAG_INVALID",
+                "CLASSIFICATION_POLICY_MISMATCH", "SNAPSHOT_PATH_UNSAFE",
+                "CONTENT_KIND_MISMATCH",
             },
             set(VIOLATION_CODES),
         )
@@ -184,6 +216,147 @@ class NegativeAuditTests(AuditFixture):
         result = audit_coverage(project_index, coverage, repo)
 
         self.assertEqual(("PATH_SET_MISMATCH",), codes(result))
+
+    def test_same_tracked_file_cannot_be_omitted_from_both_artifacts(self):
+        repo, project_index, coverage = self.build(files={
+            "one.txt": b"one\n",
+            "two.txt": b"two\n",
+        })
+        project_index["files"] = [item for item in project_index["files"] if item["path"] != "two.txt"]
+        coverage["entries"] = [item for item in coverage["entries"] if item["path"] != "two.txt"]
+        project_index["file_count"] = len(project_index["files"])
+        coverage["tracked_file_count"] = len(coverage["entries"])
+
+        result = audit_coverage(project_index, coverage, repo, require_complete=True)
+
+        self.assertEqual("FAIL", result.status)
+        self.assertIn("PATH_SET_MISMATCH", code_set(result))
+        self.assertTrue(any("two.txt" in violation.message for violation in result.violations))
+
+    def test_worktree_audit_detects_a_staged_path_missing_from_the_artifacts(self):
+        repo, project_index, coverage = self.build(files={"one.txt": b"one\n"})
+        (repo / "new.txt").write_bytes(b"new\n")
+        staged = run_git_bytes(repo, "add", "new.txt")
+        self.assertEqual(0, staged.returncode, staged.stderr)
+
+        result = audit_coverage(project_index, coverage, repo)
+
+        self.assertIn("PATH_SET_MISMATCH", code_set(result))
+        self.assertTrue(any("new.txt" in violation.message for violation in result.violations))
+
+    def test_worktree_audit_checks_recorded_object_ids_against_the_current_index(self):
+        repo, project_index, coverage = self.build(files={"one.txt": b"one\n"})
+        blob = run_git_bytes(repo, "hash-object", "-w", "--stdin", input_bytes=b"staged version\n")
+        self.assertEqual(0, blob.returncode, blob.stderr)
+        object_id = blob.stdout.decode("ascii").strip()
+        updated = run_git_bytes(repo, "update-index", "--cacheinfo", f"100644,{object_id},one.txt")
+        self.assertEqual(0, updated.returncode, updated.stderr)
+
+        result = audit_coverage(project_index, coverage, repo)
+
+        self.assertIn("VCS_OBJECT_MISMATCH", code_set(result))
+
+    def test_worktree_audit_requires_the_recorded_revision_to_match_current_head(self):
+        repo, project_index, coverage = self.build(files={"one.txt": b"one\n"})
+        (repo / "new.txt").write_bytes(b"new\n")
+        commit_all(repo, "advance HEAD")
+
+        result = audit_coverage(project_index, coverage, repo)
+
+        self.assertIn("REVISION_MISMATCH", code_set(result))
+
+    def test_git_tree_audit_detects_a_path_omitted_from_both_artifacts(self):
+        repo, project_index, coverage = self.build(
+            "git-tree", files={"one.txt": b"one\n", "two.txt": b"two\n"},
+        )
+        project_index["files"] = [item for item in project_index["files"] if item["path"] != "two.txt"]
+        coverage["entries"] = [item for item in coverage["entries"] if item["path"] != "two.txt"]
+        project_index["file_count"] = len(project_index["files"])
+        coverage["tracked_file_count"] = len(coverage["entries"])
+
+        result = audit_coverage(project_index, coverage, repo)
+
+        self.assertEqual("FAIL", result.status)
+        self.assertIn("PATH_SET_MISMATCH", code_set(result))
+        self.assertTrue(any("two.txt" in violation.message for violation in result.violations))
+
+    def test_git_tree_audit_checks_object_ids_against_the_declared_revision(self):
+        repo, project_index, coverage = self.build("git-tree", files={"one.txt": b"one\n"})
+        file_of(project_index, "one.txt")["vcs_object_id"] = "0" * 40
+
+        result = audit_coverage(project_index, coverage, repo)
+
+        self.assertIn("VCS_OBJECT_MISMATCH", code_set(result))
+
+    def test_git_tree_membership_ignores_staged_additions_and_deletions(self):
+        repo, project_index, coverage = self.build(
+            "git-tree", files={"one.txt": b"one\n", "two.txt": b"two\n"},
+        )
+        (repo / "new.txt").write_bytes(b"new\n")
+        added = run_git_bytes(repo, "add", "new.txt")
+        removed = run_git_bytes(repo, "rm", "--cached", "two.txt")
+        self.assertEqual(0, added.returncode, added.stderr)
+        self.assertEqual(0, removed.returncode, removed.stderr)
+
+        result = audit_coverage(project_index, coverage, repo)
+
+        self.assertEqual("PASS", result.status, result.violations)
+
+    def test_v1_1_index_entries_must_remain_tracked(self):
+        repo, project_index, coverage = self.build(files={"one.txt": b"one\n"})
+        file_of(project_index, "one.txt")["tracked"] = False
+
+        result = audit_coverage(project_index, coverage, repo)
+
+        self.assertIn("TRACKED_FLAG_INVALID", code_set(result))
+
+    def test_v1_1_coverage_requires_the_supported_classification_policy(self):
+        repo, project_index, coverage = self.build(files={"one.txt": b"one\n"})
+        coverage["classification_policy_version"] = "2.0.0"
+
+        result = audit_coverage(project_index, coverage, repo)
+
+        self.assertIn("CLASSIFICATION_POLICY_MISMATCH", code_set(result))
+
+    def test_v1_1_coverage_requires_a_classification_policy_version(self):
+        repo, project_index, coverage = self.build(files={"one.txt": b"one\n"})
+        del coverage["classification_policy_version"]
+
+        result = audit_coverage(project_index, coverage, repo)
+
+        self.assertIn("V11_FIELD_MISSING", code_set(result))
+
+    def test_worktree_audit_rejects_symlink_or_junction_escapes_before_hashing(self):
+        escape_kinds = ("junction-ancestor",) if os.name == "nt" else (
+            "final-symlink", "ancestor-symlink",
+        )
+        for escape_kind in escape_kinds:
+            with self.subTest(escape_kind=escape_kind):
+                repo, project_index, coverage = self.build(files={"src/regular.py": b"inside\n"})
+                outside = repo.parent / "outside"
+                outside.mkdir()
+                (outside / "regular.py").write_bytes(b"external payload\n")
+
+                if escape_kind == "final-symlink":
+                    tracked = repo / "src" / "regular.py"
+                    tracked.unlink()
+                    create_symlink_or_skip(self, tracked, outside / "regular.py")
+                else:
+                    tracked = repo / "src"
+                    shutil.rmtree(tracked)
+                    if escape_kind == "junction-ancestor":
+                        create_junction_or_skip(self, tracked, outside)
+                        self.addCleanup(
+                            lambda path=tracked: os.rmdir(path)
+                            if os.path.lexists(path) else None
+                        )
+                    else:
+                        create_symlink_or_skip(self, tracked, outside, target_is_directory=True)
+
+                result = audit_coverage(project_index, coverage, repo)
+
+                self.assertEqual("FAIL", result.status)
+                self.assertEqual({"SNAPSHOT_PATH_UNSAFE"}, code_set(result))
 
     def test_duplicate_path_is_reported(self):
         repo, project_index, coverage = self.build()
@@ -332,6 +505,61 @@ class NegativeAuditTests(AuditFixture):
         result = audit_coverage(artifacts.project_index, artifacts.coverage, repo)
 
         self.assertEqual(("SNAPSHOT_HASH_MISMATCH",), codes(result))
+
+    def test_git_tree_audit_rejects_a_symlink_claimed_as_regular_text(self):
+        repo, artifacts = self.build_git_symlink_repo()
+        file_of(artifacts.project_index, "link.txt")["content_kind"] = "text"
+
+        result = audit_coverage(artifacts.project_index, artifacts.coverage, repo)
+
+        self.assertEqual("FAIL", result.status)
+        self.assertIn("CONTENT_KIND_MISMATCH", code_set(result))
+
+    def test_git_tree_audit_rejects_a_gitlink_claimed_as_regular_text(self):
+        repo, artifacts = self.build_gitlink_repo()
+        file_of(artifacts.project_index, "vendor/lib")["content_kind"] = "text"
+
+        result = audit_coverage(artifacts.project_index, artifacts.coverage, repo)
+
+        self.assertEqual("FAIL", result.status)
+        self.assertIn("CONTENT_KIND_MISMATCH", code_set(result))
+
+    def test_git_tree_audit_rejects_regular_blob_claimed_as_symlink(self):
+        repo, project_index, coverage = self.build("git-tree", files={"one.txt": b"one\n"})
+        file_of(project_index, "one.txt")["content_kind"] = "symlink"
+
+        result = audit_coverage(project_index, coverage, repo)
+
+        self.assertEqual("FAIL", result.status)
+        self.assertIn("CONTENT_KIND_MISMATCH", code_set(result))
+
+    def test_worktree_audit_checks_special_content_kind_against_current_index_mode(self):
+        cases = (
+            ("symlink", self.build_git_symlink_repo, "link.txt"),
+            ("gitlink", self.build_gitlink_repo, "vendor/lib"),
+        )
+        for kind, build, path in cases:
+            with self.subTest(kind=kind):
+                repo, artifacts = build()
+                artifacts.project_index["project"]["snapshot_kind"] = "worktree"
+                file_of(artifacts.project_index, path)["content_kind"] = "text"
+
+                result = audit_coverage(artifacts.project_index, artifacts.coverage, repo)
+
+                self.assertIn("CONTENT_KIND_MISMATCH", code_set(result))
+
+    def test_git_tree_snapshot_revision_must_be_a_commit_object(self):
+        repo, project_index, coverage = self.build("git-tree", files={"one.txt": b"one\n"})
+        tree = run_git_bytes(repo, "rev-parse", "HEAD^{tree}")
+        self.assertEqual(0, tree.returncode, tree.stderr)
+        tree_id = tree.stdout.decode("ascii").strip()
+        project_index["repository_revision"] = tree_id
+        coverage["repository_revision"] = tree_id
+
+        result = audit_coverage(project_index, coverage, repo)
+
+        self.assertEqual("FAIL", result.status)
+        self.assertIn("REVISION_MISMATCH", code_set(result))
 
     def test_independent_violations_are_accumulated_not_short_circuited(self):
         repo, project_index, coverage = self.build()

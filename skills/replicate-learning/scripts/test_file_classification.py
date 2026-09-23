@@ -117,6 +117,40 @@ class SurfaceRuleTests(unittest.TestCase):
                 self.assertEqual(surface, decision.surface)
                 self.assertEqual(classification, decision.classification)
 
+    def test_business_workflow_paths_are_not_ci_surfaces(self):
+        for path in ("src/workflows/order.py", "src/agent/workflows/research.py"):
+            with self.subTest(path=path):
+                decision = classify_file(facts(path))
+
+                self.assertNotEqual("ci", decision.surface)
+                self.assertNotIn("ci", decision.secondary_surfaces)
+
+    def test_ci_contexts_and_recognized_root_filenames_remain_ci(self):
+        paths = (
+            ".github/workflows/ci.yml",
+            ".circleci/config.yml",
+            ".gitlab-ci.yml",
+            ".gitlab-ci.yaml",
+            "Jenkinsfile",
+            "azure-pipelines.yml",
+            "azure-pipelines.yaml",
+            ".travis.yml",
+            ".travis.yaml",
+            "appveyor.yml",
+            "bitbucket-pipelines.yml",
+            "buildkite.yml",
+            "buildkite.yaml",
+            "ci.yml",
+            "ci.yaml",
+            ".drone.yml",
+            "cloudbuild.yaml",
+        )
+        for path in paths:
+            with self.subTest(path=path):
+                decision = classify_file(facts(path))
+
+                self.assertEqual("ci", decision.surface)
+
     def test_every_non_unknown_decision_carries_a_reason_and_a_known_rule_id(self):
         for path in self.CASES:
             with self.subTest(path=path):

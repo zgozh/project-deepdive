@@ -2,10 +2,12 @@
 """Tests for the thin Phase 2 scan and audit command-line interfaces."""
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 
@@ -14,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from artifact_contract import dumps_artifact, load_artifact  # noqa: E402
 from coverage_audit import audit_coverage  # noqa: E402
 from repository_scan import ScanOptions, scan_repository  # noqa: E402
+import scan_repository as scan_repository_cli  # noqa: E402
 from test_repository_scan import (  # noqa: E402
     build_fixture_repository,
     commit_all,
@@ -43,6 +46,119 @@ def run_cli(script, *args):
         capture_output=True,
         check=False,
     )
+
+
+class PublisherTests(unittest.TestCase):
+    def _fail_second_final_replace(self):
+        real_replace = os.replace
+        final_replacements = 0
+
+        def replace(src, dst):
+            nonlocal final_replacements
+            if Path(src).suffix == ".tmp" and Path(dst).name in {
+                "project-index.json", "coverage.json",
+            }:
+                final_replacements += 1
+                if final_replacements == 2:
+                    raise OSError("injected second final replacement failure")
+            return real_replace(src, dst)
+
+        return patch.object(scan_repository_cli.os, "replace", side_effect=replace)
+
+    def test_second_final_replace_failure_restores_both_old_artifacts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "artifacts"
+            out.mkdir()
+            (out / "project-index.json").write_bytes(b"old index\x00bytes")
+            (out / "coverage.json").write_bytes(b"old coverage\x00bytes")
+            (out / "keep-me.txt").write_bytes(b"unrelated\n")
+
+            with self._fail_second_final_replace():
+                with self.assertRaisesRegex(OSError, "injected second final replacement failure"):
+                    scan_repository_cli._publish(out, {
+                        "project-index.json": "new index",
+                        "coverage.json": "new coverage",
+                    })
+
+            self.assertEqual(b"old index\x00bytes", (out / "project-index.json").read_bytes())
+            self.assertEqual(b"old coverage\x00bytes", (out / "coverage.json").read_bytes())
+            self.assertEqual(b"unrelated\n", (out / "keep-me.txt").read_bytes())
+            self.assertEqual([], list(out.glob(".*.tmp")))
+            self.assertEqual([], list(out.glob(".*.bak")))
+
+    def test_first_publication_failure_removes_only_the_new_target(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "artifacts"
+            out.mkdir()
+            (out / "coverage.json").write_bytes(b"old coverage")
+            (out / "keep-me.txt").write_bytes(b"unrelated\n")
+
+            with self._fail_second_final_replace():
+                with self.assertRaisesRegex(OSError, "injected second final replacement failure"):
+                    scan_repository_cli._publish(out, {
+                        "project-index.json": "new index",
+                        "coverage.json": "new coverage",
+                    })
+
+            self.assertFalse((out / "project-index.json").exists())
+            self.assertEqual(b"old coverage", (out / "coverage.json").read_bytes())
+            self.assertEqual(b"unrelated\n", (out / "keep-me.txt").read_bytes())
+
+    def test_failed_replace_does_not_rollback_a_target_created_by_another_writer(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "artifacts"
+            out.mkdir()
+            (out / "project-index.json").write_bytes(b"old index")
+            competing_bytes = b"concurrent writer owns this target\n"
+            real_replace = os.replace
+
+            def replace(src, dst):
+                source_path, target_path = Path(src), Path(dst)
+                if source_path.suffix == ".tmp" and target_path.name == "coverage.json":
+                    target_path.write_bytes(competing_bytes)
+                    raise OSError("injected second replacement failure after concurrent create")
+                return real_replace(src, dst)
+
+            with patch.object(scan_repository_cli.os, "replace", side_effect=replace):
+                with self.assertRaisesRegex(OSError, "after concurrent create"):
+                    scan_repository_cli._publish(out, {
+                        "project-index.json": "new index",
+                        "coverage.json": "new coverage",
+                    })
+
+            self.assertEqual(b"old index", (out / "project-index.json").read_bytes())
+            self.assertEqual(competing_bytes, (out / "coverage.json").read_bytes())
+            self.assertEqual([], list(out.glob(".*.tmp")))
+            self.assertEqual([], list(out.glob(".*.bak")))
+
+    def test_rollback_failure_has_a_distinct_error_and_preserves_recovery_backup(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "artifacts"
+            out.mkdir()
+            (out / "project-index.json").write_bytes(b"old index")
+            (out / "coverage.json").write_bytes(b"old coverage")
+            real_replace = os.replace
+
+            def replace(src, dst):
+                source_path, target_path = Path(src), Path(dst)
+                if source_path.suffix == ".tmp" and target_path.name == "coverage.json":
+                    raise OSError("injected publication failure")
+                if source_path.suffix == ".bak" and target_path.name == "project-index.json":
+                    raise OSError("injected rollback failure")
+                return real_replace(src, dst)
+
+            with patch.object(scan_repository_cli.os, "replace", side_effect=replace):
+                with self.assertRaises(OSError) as raised:
+                    scan_repository_cli._publish(out, {
+                        "project-index.json": "new index",
+                        "coverage.json": "new coverage",
+                    })
+
+            self.assertEqual("PublicationRollbackError", type(raised.exception).__name__)
+            self.assertIn("rollback failed", str(raised.exception).lower())
+            self.assertIn("project-index.json", str(raised.exception))
+            self.assertEqual(b"old coverage", (out / "coverage.json").read_bytes())
+            self.assertTrue(list(out.glob(".*.bak")), "failed rollback must retain its original backup")
 
 
 class CliFixture(unittest.TestCase):
@@ -288,7 +404,19 @@ class AuditCliTests(CliFixture):
         result = self.audit(index_path, coverage_path, repo)
 
         self.assertEqual(1, result.returncode, result.stdout + result.stderr)
-        self.assertIn("SCHEMA_INVALID", result.stdout)
+        self.assertIn(f"SCHEMA_INVALID {coverage_path}", result.stdout)
+
+    def test_malformed_project_index_reports_its_own_path(self):
+        repo = self.make_repo()
+        index_path, coverage_path = self.build_artifacts(repo)
+        index_path.write_text("{", encoding="utf-8")
+
+        result = self.audit(index_path, coverage_path, repo)
+
+        self.assertEqual(1, result.returncode, result.stdout + result.stderr)
+        self.assertIn("status=FAIL", result.stdout)
+        self.assertIn(f"SCHEMA_INVALID {index_path}", result.stdout)
+        self.assertNotIn(f"SCHEMA_INVALID {coverage_path}", result.stdout)
 
     def test_argparse_misuse_exits_two(self):
         result = run_cli(AUDIT_CLI, "--project-index", "missing.json")

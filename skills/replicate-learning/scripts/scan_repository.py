@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Scan a Git repository into canonical Project DeepDive coverage artifacts.
 
-The command builds and audits both documents in memory, then publishes them with
-staged temporary files so a failed run leaves any previous valid output intact.
-It contains no classification rules: those live in ``file_classification``.
+The command builds and audits both documents in memory, stages both payloads,
+and rolls back handled publication failures when possible. It contains no
+classification rules: those live in ``file_classification``.
 """
 
 from __future__ import annotations
@@ -11,6 +11,8 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import shutil
+import stat
 import sys
 import tempfile
 from datetime import datetime, timezone
@@ -27,6 +29,10 @@ _GENERATED_AT_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0
 EXIT_OK = 0
 EXIT_FAILURE = 1
 EXIT_USAGE = 2
+
+
+class PublicationRollbackError(OSError):
+    """A handled publication failure could not restore every previous output."""
 
 
 def configure_stdio() -> None:
@@ -60,9 +66,44 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _publish(out_dir: Path, documents: dict[str, str]) -> None:
-    """Write each document through a staged temporary file, then replace the target."""
+    """Stage both outputs and roll back only final replacements completed here."""
     out_dir.mkdir(parents=True, exist_ok=True)
     staged: list[tuple[Path, Path]] = []
+    owned_backups: set[Path] = set()
+    backups: dict[Path, Path | None] = {}
+    replaced: list[Path] = []
+
+    def cleanup(paths, keep=frozenset()) -> None:
+        for path in paths:
+            if path in keep:
+                continue
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+    def preserve_existing(final: Path) -> Path | None:
+        try:
+            info = final.lstat()
+        except FileNotFoundError:
+            return None
+        if not (stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode)):
+            raise OSError(f"cannot replace artifact target that is not a file: {final}")
+
+        handle = tempfile.NamedTemporaryFile(
+            "wb",
+            dir=out_dir,
+            prefix=f".{final.name}.",
+            suffix=".bak",
+            delete=False,
+        )
+        backup = Path(handle.name)
+        handle.close()
+        owned_backups.add(backup)
+        backup.unlink()
+        shutil.copy2(final, backup, follow_symlinks=False)
+        return backup
+
     try:
         for name, text in documents.items():
             with tempfile.NamedTemporaryFile(
@@ -79,15 +120,41 @@ def _publish(out_dir: Path, documents: dict[str, str]) -> None:
                 handle.write(text)
                 handle.flush()
                 os.fsync(handle.fileno())
+        for _temporary, final in staged:
+            backups[final] = preserve_existing(final)
         for temporary, final in staged:
             os.replace(temporary, final)
-    except BaseException:
-        for temporary, _final in staged:
+            # A failed replacement may leave a concurrent writer's target in place.
+            replaced.append(final)
+    except BaseException as publish_error:
+        rollback_errors: list[tuple[Path, Path | None, OSError]] = []
+        for final in reversed(replaced):
+            backup = backups[final]
             try:
-                temporary.unlink(missing_ok=True)
-            except OSError:
-                pass
+                if backup is None:
+                    final.unlink(missing_ok=True)
+                else:
+                    os.replace(backup, final)
+            except OSError as rollback_error:
+                rollback_errors.append((final, backup, rollback_error))
+
+        retained_backups = {backup for _final, backup, _error in rollback_errors if backup is not None}
+        cleanup((temporary for temporary, _final in staged))
+        cleanup(owned_backups, keep=retained_backups)
+        if rollback_errors:
+            details = []
+            for final, backup, error in rollback_errors:
+                detail = f"{final.name}: {error}"
+                if backup is not None:
+                    detail += f"; original backup retained at {backup}"
+                details.append(detail)
+            raise PublicationRollbackError(
+                f"publication failed: {publish_error}; rollback failed for "
+                + "; ".join(details)
+            ) from publish_error
         raise
+    cleanup((temporary for temporary, _final in staged))
+    cleanup(owned_backups)
 
 
 def _assert_publishable(

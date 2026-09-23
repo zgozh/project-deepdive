@@ -350,7 +350,10 @@ SCOPE list) was created or modified.
 - `git commit`: not run.
 - `git push`: not run.
 - `git add` / `git stage`: not run (working tree status still shows the Phase 2 files as untracked).
-- `git remote`: not read, not modified. `git fetch`/`git pull`: not run.
+- During the initial Phase 2 implementation, `git remote` was not read or
+  modified. During repair round 1, `git remote -v` was read once for the
+  requested safety check; no remote configuration changed. `git fetch`/`git pull`
+  were not run.
 - No file outside this workspace was written.
 
 ## 14. Known limitations (all inside the Phase 2 boundary)
@@ -363,3 +366,93 @@ SCOPE list) was created or modified.
 6. **Page/Gradle `src/main/resources` is not treated as backend**, so `application.yml` is `configuration` without a `backend` secondary surface. Only language source roots (`src/main/<language>`) carry the production-source convention.
 7. **`path:documentation` also covers standard repository documents** (`README*`, `CHANGELOG*`, `LICENSE*`, `NOTICE`, …) whose extension is empty or documentation-like, because no other rule in the fixed vocabulary fits a licence file.
 8. **No CI workflow was added** to this repository, so the new tests run through the documented local commands only.
+
+## 15. Repair round 1 evidence (2026-09-23)
+
+This appendix records the review repair on `project-deepdive/phase2-repair` at
+WIP checkpoint `b62c249`. That checkpoint is not acceptance. The original Phase
+2 TDD deviations and platform limitations above are preserved.
+
+### 15.1 Baseline before repair
+
+From `skills/replicate-learning/`:
+
+| Command | Exit | Observed |
+|---|---:|---|
+| `python -m unittest scripts.test_file_classification scripts.test_repository_scan scripts.test_coverage_audit scripts.test_repository_scan_cli -v` | 0 | Ran 123 tests, `OK (skipped=3)`; 95.815 s |
+
+### 15.2 Red/green regression evidence
+
+| Slice | Red evidence | Repair and green evidence |
+|---|---|---|
+| A — Git-authoritative G01 | The new simultaneous-omission test returned `PASS` after `two.txt` and its counts were removed from both artifacts. The combined new audit selection also showed no failure for a staged index addition, changed index object ID, advanced `HEAD`, declared-tree omission, `tracked=false`, or missing/wrong policy version. One test first errored because its `commit_all` helper was not imported; after correcting the test helper, the isolated HEAD test failed for the expected missing `REVISION_MISMATCH`. | The audit now compares project-index paths and v1.1 object IDs with the authoritative current index for `worktree`, and with the declared commit tree for `git-tree`; it also enforces worktree `HEAD`, `tracked=true`, and the supported policy version. `python -m unittest scripts.test_repository_scan scripts.test_coverage_audit -v`: Ran 87 tests, `OK (skipped=3)`; 107.214 s. This run covers both A and B. |
+| B — worktree containment | The scanner junction probe did not raise and followed the external regular file. The audit probe reported `SNAPSHOT_SIZE_MISMATCH` instead of a path-safety violation. | Scanner and auditor now share a final-entry/ancestor symlink and reparse guard with resolved containment checks. Both junction probes passed on this Windows host and the auditor returned only `SNAPSHOT_PATH_UNSAFE`. The existing Git-symlink payload test remains an explicit platform skip here; its behavior is exercised when symlink creation is permitted. |
+| C — publication rollback | `python -m unittest scripts.test_repository_scan_cli.PublisherTests -v`: 3 failures; the injected second replacement left mixed outputs, first-time publication left a new index behind, and rollback failure surfaced only as generic `OSError`. | Handled publication errors now restore prior outputs or remove outputs created by the invocation. A rollback failure raises `PublicationRollbackError` and retains the affected backup. `python -m unittest scripts.test_repository_scan_cli -v`: Ran 22 tests, `OK`; 29.906 s. |
+| D — CI classification and CLI diagnostics | The workflow negative tests classified both business paths as `ci`. A malformed project-index was attributed to the coverage path; the coverage-input positive case already named coverage correctly. | `workflows` only implies CI beneath root `.github/workflows`; `.circleci` and recognized CI filenames remain supported. Each artifact load now reports its own path. The four focused classification/CLI regressions ran `OK`. |
+
+Publication rollback evidence covers handled write/replacement failures while the
+process remains running. It does not claim crash or power-loss atomicity. The
+worktree path guard also does not claim race-free protection against a path swap
+between validation and file opening.
+
+### 15.3 Review follow-up: Git mode and revision types
+
+The independent diff review found that a valid Git-tree payload could still pass
+after its v1.1 `content_kind` was changed to a different kind. It also found that
+`git ls-tree` accepts a tree object where `repository_revision` is required to be
+a commit ID.
+
+| Red evidence | Repair and green evidence |
+|---|---|
+| Four new regressions each failed because audit returned `PASS` for a symlink labeled `text`, a gitlink labeled `text`, a regular blob labeled `symlink`, and a tree object used as `repository_revision`. | Audit now checks v1.1 `content_kind` against Git mode in worktree and git-tree snapshots, reports `CONTENT_KIND_MISMATCH`, and rejects non-commit revisions as `REVISION_MISMATCH`. The four direct regressions ran `OK`; an added worktree-mode check also passed separately (1 test). The A+B command ran 91 tests, `OK (skipped=3)`; 136.362 s. The final full suite includes all these tests. |
+
+### 15.4 Final verification matrix
+
+From `skills/replicate-learning/`, artifact validation used the prescribed
+PowerShell command (exit 0):
+
+```powershell
+$phase2Fixtures = Get-ChildItem tests/fixtures/artifacts/v1/*.json | ForEach-Object FullName
+python scripts/validate_artifact.py @phase2Fixtures
+```
+
+All seven v1 fixtures passed. The remaining commands also exited 0:
+
+| Command | Observed |
+|---|---|
+| `python -W ignore::ResourceWarning -m unittest discover -s scripts -p "test_*.py" -t scripts` | Ran 344 tests in 149.831 s; `OK (skipped=3)`. |
+| `python scripts/skill_selfcheck.py` | 122 checks, 0 failures. |
+| `python scripts/v2_selfcheck.py` | PASS, 6 contract entries. |
+| `python -m compileall -q scripts` | Completed without errors. |
+
+At the repository root, `git diff --check` exited 0. `git status --short
+--untracked-files=all` showed the 11 repair files listed in the delivery, plus the
+two pre-existing untracked files `text.md` and
+`docs/project-deepdive/phase-2-review.patch`; neither was modified. The cached
+path list was empty. `git remote -v` showed the existing `origin` fetch/push URL;
+no remote settings were changed. No staging, commit, push, fetch, pull, or Phase 3
+work was performed.
+
+### 15.5 Review follow-up: publication rollback ownership
+
+This follow-up changed only `scan_repository.py`,
+`test_repository_scan_cli.py`, `coverage-policy.md`, and this verification record.
+
+The regression starts with no `coverage.json`. After the backup pass observes it
+missing, the injected second replacement creates it with another writer's bytes
+and raises `OSError`. Before repair, `_publish()` treated that failed target as
+attempted and rollback deleted it; the red run errored with `FileNotFoundError`
+when the test checked the competing writer's bytes.
+
+`_publish()` now adds a target to its rollback list only after `os.replace`
+returns successfully. The focused command
+`python -m unittest scripts.test_repository_scan_cli.PublisherTests -v` exited 0
+and ran 4 tests, `OK` (0.113 s); this includes the concurrent-create case, the
+original second-target failure, first-time publication, and explicit rollback
+failure.
+
+This protects a same-name target left behind by a failed replacement. It does not
+provide multi-writer transactionality: without an interprocess lock or atomic
+compare-and-swap, a successful replacement can overwrite a concurrent writer,
+and rollback of a successful replacement can overwrite or remove a later
+concurrent update. Publication is also not crash-atomic, as documented above.

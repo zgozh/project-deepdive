@@ -20,12 +20,22 @@ from pathlib import Path
 from typing import Mapping
 
 from artifact_contract import ArtifactValidationError, validate_artifact
-from file_classification import RULE_IDS, SURFACES, normalize_artifact_path
+from file_classification import (
+    CLASSIFICATION_POLICY_VERSION,
+    RULE_IDS,
+    SURFACES,
+    normalize_artifact_path,
+)
 from repository_scan import (
+    GitContext,
+    GitSnapshotEntry,
+    InvalidGitRevisionError,
     RepositoryScanError,
     SAMPLE_BYTES,
-    analysis_prefix_between,
-    git_capture,
+    UnsafeWorktreePathError,
+    discover_git_context,
+    enumerate_git_snapshot_entries,
+    guard_worktree_path,
     hash_git_object,
 )
 
@@ -43,9 +53,14 @@ VIOLATION_CODES: tuple[str, ...] = (
     "UNKNOWN_COUNT_MISMATCH",
     "UNKNOWN_REMAINS",
     "SNAPSHOT_FILE_MISSING",
+    "SNAPSHOT_PATH_UNSAFE",
     "SNAPSHOT_SIZE_MISMATCH",
     "SNAPSHOT_HASH_MISMATCH",
     "GIT_OBJECT_MISSING",
+    "VCS_OBJECT_MISMATCH",
+    "TRACKED_FLAG_INVALID",
+    "CLASSIFICATION_POLICY_MISMATCH",
+    "CONTENT_KIND_MISMATCH",
 )
 
 _STATUS_PASS = "PASS"
@@ -56,6 +71,8 @@ _INDEX_V11_FIELDS = ("content_kind", "media_type", "extension", "vcs_object_id")
 _COVERAGE_V11_FIELDS = ("secondary_surfaces", "rule_id")
 _REASON_REQUIRED_CLASSIFICATIONS = ("GENERATED", "VENDOR", "IGNORED_WITH_REASON")
 _GITLINK_CONTENT_KIND = "gitlink"
+_GITLINK_MODE = "160000"
+_SYMLINK_MODE = "120000"
 
 
 @dataclass(frozen=True)
@@ -100,16 +117,6 @@ def _measurements(project_index: Mapping[str, object], coverage: Mapping[str, ob
         "unknown_files": unknowns,
         "violations": violations,
     }
-
-
-def _repository_layout(root: Path) -> tuple[Path, str]:
-    top = git_capture(Path(root), "rev-parse", "--show-toplevel")
-    if top.returncode != 0:
-        raise RepositoryScanError(
-            f"{root}: not inside a Git repository, so a git-tree snapshot cannot be verified"
-        )
-    repository_root = Path(os.fsdecode(top.stdout).strip())
-    return repository_root, analysis_prefix_between(repository_root, root)
 
 
 def audit_coverage(
@@ -225,13 +232,36 @@ def audit_coverage(
             if missing:
                 add("V11_FIELD_MISSING", item["path"],
                     f"scanner file entry is missing: {', '.join(missing)}")
+            if item.get("tracked") is not True:
+                add("TRACKED_FLAG_INVALID", item["path"],
+                    "v1.1 project-index entries must declare tracked=true")
+
+    if coverage_v11:
+        if "classification_policy_version" not in coverage:
+            add("V11_FIELD_MISSING", "coverage",
+                "v1.1 coverage artifact is missing classification_policy_version")
+        elif coverage["classification_policy_version"] != CLASSIFICATION_POLICY_VERSION:
+            add("CLASSIFICATION_POLICY_MISMATCH", "coverage",
+                "coverage.classification_policy_version must equal "
+                f"{CLASSIFICATION_POLICY_VERSION!r}, got "
+                f"{coverage['classification_policy_version']!r}")
 
     if require_complete and unknown_entries:
         for entry in unknown_entries:
             add("UNKNOWN_REMAINS", entry["path"],
                 "completeness was required but this tracked file is still UNKNOWN")
 
-    _verify_snapshot(project_index, files, root, unsafe, add)
+    _verify_snapshot(
+        project_index,
+        files,
+        root,
+        unsafe,
+        add,
+        revision_mismatch_already_reported=any(
+            violation.code == "REVISION_MISMATCH" for violation in violations
+        ),
+        require_content_kind=index_v11,
+    )
 
     ordered = tuple(sorted(violations, key=lambda item: (item.code, item.path, item.message)))
     if ordered:
@@ -253,16 +283,81 @@ def _verify_snapshot(
     root: Path,
     unsafe: set[str],
     add,
+    revision_mismatch_already_reported: bool = False,
+    require_content_kind: bool = False,
 ) -> None:
     snapshot_kind = project_index["project"]["snapshot_kind"]
+    context = discover_git_context(Path(root))
     if snapshot_kind == "worktree":
+        entries = enumerate_git_snapshot_entries(context, "worktree")
+        _compare_index_with_git(files, entries, add, require_content_kind=require_content_kind)
+        if (project_index["repository_revision"] != context.revision
+                and not revision_mismatch_already_reported):
+            add("REVISION_MISMATCH", "project-index",
+                "worktree repository_revision does not match the current Git HEAD")
         _verify_worktree(files, root, unsafe, add)
         return
     if snapshot_kind == "git-tree":
-        _verify_git_tree(project_index, files, root, unsafe, add)
+        try:
+            entries = enumerate_git_snapshot_entries(
+                context, "git-tree", project_index["repository_revision"],
+            )
+        except InvalidGitRevisionError as exc:
+            add("REVISION_MISMATCH", "project-index", str(exc))
+            return
+        except RepositoryScanError as exc:
+            add("GIT_OBJECT_MISSING", "project-index",
+                f"cannot enumerate the declared Git tree: {exc}")
+            return
+        _compare_index_with_git(files, entries, add, require_content_kind=require_content_kind)
+        _verify_git_tree(project_index, files, unsafe, add, context, entries)
         return
     add("SNAPSHOT_FILE_MISSING", "project-index",
         f"unsupported snapshot_kind {snapshot_kind!r}: cannot verify the snapshot")
+
+
+def _compare_index_with_git(
+    files: list,
+    git_entries: tuple[GitSnapshotEntry, ...],
+    add,
+    require_content_kind: bool = False,
+) -> None:
+    expected = {entry.path: entry for entry in git_entries}
+    indexed_paths = {item["path"] for item in files}
+    expected_paths = set(expected)
+    if indexed_paths != expected_paths:
+        missing = sorted(expected_paths - indexed_paths)
+        unexpected = sorted(indexed_paths - expected_paths)
+        details = []
+        if missing:
+            details.append(f"missing from project-index: {', '.join(missing[:5])}")
+        if unexpected:
+            details.append(f"not present in Git snapshot: {', '.join(unexpected[:5])}")
+        add("PATH_SET_MISMATCH", "project-index", "; ".join(details))
+
+    for item in files:
+        path = item["path"]
+        git_entry = expected.get(path)
+        if git_entry is None or "vcs_object_id" not in item:
+            continue
+        if item["vcs_object_id"] != git_entry.object_id:
+            add("VCS_OBJECT_MISMATCH", path,
+                f"Git snapshot records object {git_entry.object_id}, but project-index records "
+                f"{item['vcs_object_id']}")
+        if require_content_kind:
+            content_kind = item.get("content_kind")
+            expected_kind = (
+                "symlink" if git_entry.mode == _SYMLINK_MODE
+                else "gitlink" if git_entry.mode == _GITLINK_MODE
+                else None
+            )
+            is_special_kind = content_kind in ("symlink", "gitlink")
+            if ((expected_kind is not None and content_kind != expected_kind)
+                    or (expected_kind is None and is_special_kind)):
+                expected_description = expected_kind or "text/binary regular-file kind"
+                add("CONTENT_KIND_MISMATCH", path,
+                    f"Git mode {git_entry.mode} requires content_kind {expected_description}, "
+                    f"but project-index records {content_kind!r}")
 
 
 def _verify_worktree(files: list, root: Path, unsafe: set[str], add) -> None:
@@ -270,20 +365,29 @@ def _verify_worktree(files: list, root: Path, unsafe: set[str], add) -> None:
         path = item["path"]
         if path in unsafe:
             continue
-        target = Path(root) / path
         content_kind = item.get("content_kind")
         if content_kind == _GITLINK_CONTENT_KIND:
             byte_count, sha256 = _gitlink_payload(item["vcs_object_id"])
         elif content_kind == "symlink":
             try:
+                target = guard_worktree_path(root, path, "symlink")
                 payload = os.fsencode(os.readlink(target))
+            except UnsafeWorktreePathError as exc:
+                add("SNAPSHOT_PATH_UNSAFE", path, str(exc))
+                continue
             except OSError:
                 add("SNAPSHOT_FILE_MISSING", path, f"tracked symlink is missing from the worktree: {path}")
                 continue
             byte_count, sha256 = len(payload), hashlib.sha256(payload).hexdigest()
         else:
-            if not target.is_file():
-                add("SNAPSHOT_FILE_MISSING", path, f"tracked file is missing from the worktree: {path}")
+            try:
+                target = guard_worktree_path(root, path, "file")
+            except UnsafeWorktreePathError as exc:
+                add("SNAPSHOT_PATH_UNSAFE", path, str(exc))
+                continue
+            except OSError:
+                add("SNAPSHOT_FILE_MISSING", path,
+                    f"tracked file is missing or unreadable in the worktree: {path}")
                 continue
             try:
                 byte_count, sha256 = _stream_hash(target)
@@ -296,36 +400,30 @@ def _verify_worktree(files: list, root: Path, unsafe: set[str], add) -> None:
 def _verify_git_tree(
     project_index: Mapping[str, object],
     files: list,
-    root: Path,
     unsafe: set[str],
     add,
+    context: GitContext,
+    git_entries: tuple[GitSnapshotEntry, ...],
 ) -> None:
-    revision = project_index["repository_revision"]
-    repository_root, prefix = _repository_layout(Path(root))
+    by_path = {entry.path: entry for entry in git_entries}
     for item in files:
         path = item["path"]
         if path in unsafe:
             continue
-        repository_path = f"{prefix}/{path}" if prefix else path
-        resolved = git_capture(repository_root, "rev-parse", f"{revision}:{repository_path}")
-        if resolved.returncode != 0:
-            add("GIT_OBJECT_MISSING", path,
-                f"{path} does not resolve at revision {revision}")
+        git_entry = by_path.get(path)
+        if git_entry is None:
             continue
-        object_id = resolved.stdout.decode("ascii", "replace").strip()
         recorded_object_id = item.get("vcs_object_id")
-        if recorded_object_id is not None and object_id != recorded_object_id:
-            add("GIT_OBJECT_MISSING", path,
-                f"{path} resolves to {object_id} at revision {revision} but the artifact records "
-                f"{recorded_object_id}")
+        if recorded_object_id is not None and recorded_object_id != git_entry.object_id:
             continue
-        if item.get("content_kind") == _GITLINK_CONTENT_KIND:
-            byte_count, sha256 = _gitlink_payload(item["vcs_object_id"])
+        if git_entry.mode == _GITLINK_MODE or git_entry.object_type == "commit":
+            byte_count, sha256 = _gitlink_payload(git_entry.object_id)
         else:
             try:
-                byte_count, sha256, _ = hash_git_object(repository_root, object_id, 0)
+                byte_count, sha256, _ = hash_git_object(context.repository_root, git_entry.object_id, 0)
             except RepositoryScanError as exc:
-                add("GIT_OBJECT_MISSING", path, f"cannot read {path} at revision {revision}: {exc}")
+                add("GIT_OBJECT_MISSING", path,
+                    f"cannot read {path} at revision {project_index['repository_revision']}: {exc}")
                 continue
         _compare_payload(item, path, byte_count, sha256, add)
 

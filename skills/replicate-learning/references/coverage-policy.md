@@ -42,6 +42,9 @@ Rules that hold in both modes:
 - results are restricted to the analysed subtree and normalized to relative POSIX paths;
 - absolute paths, `..` escapes, duplicates, backslashes and non-UTF-8 tracked paths fail closed;
 - untracked files are ignored: the Phase 2 contract is tracked-repository coverage;
+- before reading a regular worktree file, the scanner and auditor inspect the
+  final entry and every parent for symlink/reparse indirection, require a regular
+  file, and check resolved containment within the analysed root;
 - target repository code, scripts, package managers and Git hooks are never executed;
 - file bodies, environment variable values and secret-like content are never written to artifacts or logs.
 
@@ -54,6 +57,11 @@ Special payloads:
 
 - **symlink** (`120000`): `bytes`/`sha256` describe the link-target payload, not the target file's content;
 - **gitlink** (`160000`, a submodule entry): `bytes`/`sha256` describe the ASCII Git object ID and `media_type` is `application/x-gitlink`; the nested repository is never traversed.
+
+A Git symlink entry is read only with `readlink`; its target is never opened.
+The path guard runs before a regular file is opened, but a filesystem change can
+still race between the guard and the later open. Phase 2 does not claim a
+race-free guarantee against a concurrent path replacement.
 
 ## 3. Deterministic file typing
 
@@ -101,6 +109,11 @@ Known source extensions without enough architectural context stay honest:
 `extension:known`. It is not mislabeled as `backend` merely because it contains
 Python. A Maven/Gradle production source root (`src/main/<language>`) is matched
 by `path:backend`, and its reason states that Phase 3 confirms the role.
+
+The generic `workflows` directory name does not imply CI: that convention is
+limited to root `.github/workflows/`. `.circleci/` and the recognized exact CI
+filenames remain CI surfaces, so business or Agent workflow code keeps its
+domain surface.
 
 ## 5. Stable rule IDs
 
@@ -185,6 +198,19 @@ safety, v1.1 fields, rule IDs, secondary-surface ordering, required reasons,
 `UNKNOWN` count, worktree file presence/size/hash, git-tree object resolution and
 gitlink payload semantics. Every mismatch is a failure, never a warning.
 
+The audit independently checks project-index membership against Git. A
+`worktree` snapshot is compared with the current index listed by
+`git ls-files --stage -z`; its recorded revision must also equal current `HEAD`, and every v1.1
+`vcs_object_id` must match the current index entry. A `git-tree` snapshot is
+compared with the tree at its declared `repository_revision`, so later staged
+additions or deletions do not change that snapshot's expected paths or object
+IDs. For v1.1 artifacts, every project-index entry must say `tracked: true`,
+and `classification_policy_version` must be present and equal the supported
+policy version. The audit also checks `content_kind` against the authoritative
+Git mode: symlink mode requires `symlink`, gitlink mode requires `gitlink`, and a
+regular-file mode cannot claim either special kind. A `git-tree` artifact's
+`repository_revision` must identify a full commit object, not a tree or blob.
+
 | Status | Condition |
 |---|---|
 | `PASS` | no violations and zero `UNKNOWN` |
@@ -195,17 +221,36 @@ Violation codes: `SCHEMA_INVALID`, `REVISION_MISMATCH`, `TIMESTAMP_MISMATCH`,
 `COUNT_MISMATCH`, `DUPLICATE_PATH`, `PATH_SET_MISMATCH`, `UNSAFE_PATH`,
 `V11_FIELD_MISSING`, `SURFACE_INVALID`, `REASON_MISSING`,
 `UNKNOWN_COUNT_MISMATCH`, `UNKNOWN_REMAINS`, `SNAPSHOT_FILE_MISSING`,
-`SNAPSHOT_SIZE_MISMATCH`, `SNAPSHOT_HASH_MISMATCH`, `GIT_OBJECT_MISSING`.
+`SNAPSHOT_PATH_UNSAFE`, `SNAPSHOT_SIZE_MISMATCH`, `SNAPSHOT_HASH_MISMATCH`,
+`GIT_OBJECT_MISSING`,
+`VCS_OBJECT_MISMATCH`, `TRACKED_FLAG_INVALID`, `CLASSIFICATION_POLICY_MISMATCH`,
+`CONTENT_KIND_MISMATCH`.
 
 ## 9. Publication and exit codes
 
 `scan_repository.py` builds, canonicalizes and audits both documents in memory
-first, writes them through staged temporary files inside `--out`, and only then
-replaces `project-index.json` and `coverage.json`. A failure before publication
-leaves any previous valid output byte-for-byte unchanged, unrelated files in the
+first, stages both payloads inside `--out`, preserves existing final states, and
+then replaces `project-index.json` and `coverage.json`. If a handled write or
+replacement error occurs, it restores each target whose replacement completed,
+using its pre-publish backup or removing it when it had no predecessor. A target
+whose replacement failed is excluded from rollback. Unrelated files in the
 destination are never deleted, and an output path that would overwrite the
 override input or a tracked repository file is refused. Re-running with the same
 snapshot and `--generated-at` is byte-identical.
+
+Rollback ownership includes only final paths whose `os.replace` call returned
+successfully. A path whose replacement raised is excluded from rollback, so a
+same-name file created by another writer after the backup check is left alone.
+There is no interprocess lock or compare-and-swap: a concurrent same-name write
+can still be overwritten by a successful `os.replace`, and a later rollback of
+that successful replacement can restore the earlier backup or remove the path,
+overwriting a concurrent update. Publication is not a multi-writer transaction.
+
+The rollback guarantee covers handled failures while the process is running. Two
+independent final-file replacements are not crash-atomic: process termination or
+power loss between replacements can leave a mixed generation. If rollback itself
+fails, the CLI reports that separately and retains the affected original backup
+for recovery.
 
 | Exit code | `scan_repository.py` | `validate_coverage.py` |
 |---|---|---|

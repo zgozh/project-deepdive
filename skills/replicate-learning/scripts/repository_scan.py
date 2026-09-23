@@ -23,6 +23,7 @@ import hashlib
 import json
 import os
 import re
+import stat
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -55,6 +56,14 @@ class RepositoryScanError(RuntimeError):
     """An operational failure that must stop the scan instead of guessing."""
 
 
+class UnsafeWorktreePathError(RepositoryScanError):
+    """A tracked worktree path resolves through symlink/reparse indirection."""
+
+
+class InvalidGitRevisionError(RepositoryScanError):
+    """A declared repository revision is not a full commit object ID."""
+
+
 @dataclass(frozen=True)
 class GitContext:
     analysis_root: Path
@@ -73,6 +82,14 @@ class IndexedFile:
     media_type: str
     extension: str
     vcs_object_id: str
+
+
+@dataclass(frozen=True)
+class GitSnapshotEntry:
+    path: str
+    mode: str
+    object_id: str
+    object_type: str
 
 
 @dataclass(frozen=True)
@@ -304,6 +321,159 @@ def _artifact_path(raw_path: str, context: GitContext) -> str | None:
         ) from exc
 
 
+def enumerate_git_snapshot_entries(
+    context: GitContext,
+    snapshot_kind: str,
+    revision: str | None = None,
+) -> tuple[GitSnapshotEntry, ...]:
+    """Read authoritative path and object metadata without touching worktree files."""
+    if snapshot_kind == "worktree":
+        result = _run_git(context.repository_root, "ls-files", "--stage", "-z")
+        failure = "cannot enumerate the current Git index"
+    elif snapshot_kind == "git-tree":
+        selected_revision = context.revision if revision is None else revision
+        if not re.fullmatch(r"[0-9a-fA-F]{40}|[0-9a-fA-F]{64}", selected_revision):
+            raise InvalidGitRevisionError(
+                f"cannot enumerate Git tree at invalid revision {selected_revision!r}"
+            )
+        object_type = _run_git(context.repository_root, "cat-file", "-t", selected_revision)
+        if object_type.returncode == 0:
+            actual_type = object_type.stdout.decode("ascii", "replace").strip()
+            if actual_type != "commit":
+                raise InvalidGitRevisionError(
+                    f"repository revision {selected_revision} names a Git {actual_type} object, "
+                    "expected a commit"
+                )
+        result = _run_git(
+            context.repository_root, "ls-tree", "-r", "-z", selected_revision,
+        )
+        failure = f"cannot enumerate Git tree at revision {selected_revision}"
+    else:
+        raise RepositoryScanError(
+            f"unknown snapshot kind {snapshot_kind!r}: expected one of {', '.join(SNAPSHOT_KINDS)}"
+        )
+    if result.returncode != 0:
+        raise RepositoryScanError(
+            f"{failure}: {result.stderr.decode('utf-8', 'replace').strip()}"
+        )
+
+    entries: list[GitSnapshotEntry] = []
+    for record in split_nul(result.stdout):
+        metadata, separator, raw_path = record.partition(b"\t")
+        fields = metadata.decode("ascii").split(" ")
+        if snapshot_kind == "worktree":
+            if not separator or len(fields) != 3:
+                raise RepositoryScanError(
+                    f"unexpected git ls-files --stage record: {metadata!r}"
+                )
+            mode, object_id, stage = fields
+            if stage != "0":
+                path = _decode_path(raw_path, "git ls-files") if separator else "<unknown>"
+                raise RepositoryScanError(
+                    f"unresolved merge stage {stage} for tracked path {path!r}; "
+                    "resolve the conflict index before scanning"
+                )
+            object_type = ""
+        else:
+            if not separator or len(fields) < 3:
+                raise RepositoryScanError(f"unexpected git ls-tree record: {metadata!r}")
+            mode, object_type, object_id = fields[0], fields[1], fields[2]
+
+        raw = _decode_path(raw_path, "git snapshot")
+        artifact_path = _artifact_path(raw, context)
+        if artifact_path is not None:
+            entries.append(GitSnapshotEntry(
+                path=artifact_path,
+                mode=mode,
+                object_id=object_id,
+                object_type=object_type,
+            ))
+
+    entries.sort(key=lambda item: item.path)
+    for previous, current in zip(entries, entries[1:]):
+        if previous.path == current.path:
+            raise RepositoryScanError(f"duplicate tracked path in Git snapshot: {current.path}")
+    return tuple(entries)
+
+
+def _is_reparse_point(path: Path, info) -> bool:
+    if stat.S_ISLNK(info.st_mode):
+        return True
+    reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    if getattr(info, "st_file_attributes", 0) & reparse_flag:
+        return True
+    is_junction = getattr(path, "is_junction", None)
+    return bool(is_junction is not None and is_junction())
+
+
+def _ensure_within_root(root: Path, path: Path, artifact_path: str) -> None:
+    resolved = path.resolve(strict=True)
+    try:
+        resolved.relative_to(root)
+    except ValueError as exc:
+        raise UnsafeWorktreePathError(
+            f"unsafe tracked path {artifact_path!r}: resolved path is outside the analysis root"
+        ) from exc
+
+
+def guard_worktree_path(
+    root: Path,
+    artifact_path: str,
+    expected_kind: str = "file",
+) -> Path:
+    """Validate a tracked path before reading it from the worktree.
+
+    The final symlink is allowed only for a Git symlink entry, whose payload is
+    obtained with ``readlink``.  Regular files and all ancestor directories must
+    contain no symlink or Windows reparse-point indirection.
+    """
+    try:
+        normalized = normalize_artifact_path(artifact_path)
+    except ValueError as exc:
+        raise UnsafeWorktreePathError(
+            f"unsafe tracked path {artifact_path!r}: {exc}"
+        ) from exc
+    if expected_kind not in ("file", "symlink"):
+        raise ValueError(f"unsupported expected worktree kind {expected_kind!r}")
+
+    analysis_root = Path(root).resolve(strict=True)
+    target = analysis_root.joinpath(*normalized.split("/"))
+    current = analysis_root
+    parts = normalized.split("/")
+    for component in parts[:-1]:
+        current = current / component
+        info = os.lstat(current)
+        if _is_reparse_point(current, info):
+            raise UnsafeWorktreePathError(
+                f"unsafe tracked path {normalized!r}: symlink/reparse ancestor {current}"
+            )
+        if not stat.S_ISDIR(info.st_mode):
+            raise UnsafeWorktreePathError(
+                f"unsafe tracked path {normalized!r}: ancestor {current} is not a directory"
+            )
+        _ensure_within_root(analysis_root, current, normalized)
+
+    info = os.lstat(target)
+    if expected_kind == "symlink":
+        if not stat.S_ISLNK(info.st_mode):
+            raise UnsafeWorktreePathError(
+                f"unsafe tracked symlink {normalized!r}: final entry is not a symbolic link"
+            )
+        return target
+
+    if _is_reparse_point(target, info):
+        raise UnsafeWorktreePathError(
+            f"unsafe tracked path {normalized!r}: final entry is a symlink/reparse point, "
+            "expected a regular file"
+        )
+    if not stat.S_ISREG(info.st_mode):
+        raise UnsafeWorktreePathError(
+            f"unsafe tracked path {normalized!r}: final entry is not a regular file"
+        )
+    _ensure_within_root(analysis_root, target, normalized)
+    return target
+
+
 def _finalize(files: list[IndexedFile]) -> tuple[IndexedFile, ...]:
     files.sort(key=lambda item: item.path)
     for previous, current in zip(files, files[1:]):
@@ -313,89 +483,55 @@ def _finalize(files: list[IndexedFile]) -> tuple[IndexedFile, ...]:
 
 
 def _enumerate_worktree(context: GitContext) -> tuple[IndexedFile, ...]:
-    result = _run_git(context.repository_root, "ls-files", "--stage", "-z")
-    if result.returncode != 0:
-        raise RepositoryScanError(
-            "cannot enumerate tracked files: " + result.stderr.decode("utf-8", "replace").strip()
-        )
-
     files: list[IndexedFile] = []
-    for record in split_nul(result.stdout):
-        metadata, separator, raw_path = record.partition(b"\t")
-        fields = metadata.decode("ascii").split(" ")
-        if not separator or len(fields) != 3:
-            raise RepositoryScanError(
-                f"unexpected git ls-files --stage record: {metadata!r}"
-            )
-        mode, object_id, stage = fields
-        if stage != "0":
-            raise RepositoryScanError(
-                "unresolved merge stage "
-                f"{stage} for tracked path {_decode_path(raw_path, 'git ls-files')!r}; "
-                "resolve the conflict index before scanning"
-            )
-        raw = _decode_path(raw_path, "git ls-files")
-        artifact_path = _artifact_path(raw, context)
-        if artifact_path is None:
+    for entry in enumerate_git_snapshot_entries(context, "worktree"):
+        if entry.mode == _MODE_GITLINK:
+            files.append(_gitlink_file(entry.path, entry.object_id))
             continue
 
-        if mode == _MODE_GITLINK:
-            files.append(_gitlink_file(artifact_path, object_id))
-            continue
-
-        target = context.analysis_root / artifact_path
-        if mode == _MODE_SYMLINK:
+        if entry.mode == _MODE_SYMLINK:
             try:
+                target = guard_worktree_path(context.analysis_root, entry.path, "symlink")
                 link_target = os.readlink(target)
-            except OSError as exc:
+            except (OSError, UnsafeWorktreePathError) as exc:
                 raise RepositoryScanError(
-                    f"cannot read tracked symlink {target}: {exc}; "
+                    f"cannot safely read tracked symlink {entry.path}: {exc}; "
                     "re-run with --snapshot git-tree to hash the committed revision"
                 ) from exc
             payload = os.fsencode(link_target)
             files.append(_indexed_file(
-                artifact_path, "symlink", object_id, len(payload),
+                entry.path, "symlink", entry.object_id, len(payload),
                 hashlib.sha256(payload).hexdigest(), payload[:SAMPLE_BYTES],
             ))
             continue
 
+        try:
+            target = guard_worktree_path(context.analysis_root, entry.path, "file")
+        except (OSError, UnsafeWorktreePathError) as exc:
+            raise RepositoryScanError(
+                f"cannot safely read tracked file {entry.path}: {exc}; "
+                "re-run with --snapshot git-tree to hash the committed revision"
+            ) from exc
         byte_count, sha256, sample = _hash_worktree_file(target, SAMPLE_BYTES)
-        files.append(_indexed_file(artifact_path, "file", object_id, byte_count, sha256, sample))
+        files.append(_indexed_file(entry.path, "file", entry.object_id, byte_count, sha256, sample))
 
     return _finalize(files)
 
 
 def _enumerate_git_tree(context: GitContext) -> tuple[IndexedFile, ...]:
-    result = _run_git(context.repository_root, "ls-tree", "-r", "-z", context.revision)
-    if result.returncode != 0:
-        raise RepositoryScanError(
-            "cannot enumerate the committed tree: "
-            + result.stderr.decode("utf-8", "replace").strip()
-        )
-
     files: list[IndexedFile] = []
-    for record in split_nul(result.stdout):
-        metadata, separator, raw_path = record.partition(b"\t")
-        fields = metadata.decode("ascii").split(" ")
-        if not separator or len(fields) < 3:
-            raise RepositoryScanError(f"unexpected git ls-tree record: {metadata!r}")
-        mode, object_type, object_id = fields[0], fields[1], fields[2]
-        raw = _decode_path(raw_path, "git ls-tree")
-        artifact_path = _artifact_path(raw, context)
-        if artifact_path is None:
+    for entry in enumerate_git_snapshot_entries(context, "git-tree", context.revision):
+        if entry.mode == _MODE_GITLINK or entry.object_type == "commit":
+            files.append(_gitlink_file(entry.path, entry.object_id))
             continue
-
-        if mode == _MODE_GITLINK or object_type == "commit":
-            files.append(_gitlink_file(artifact_path, object_id))
-            continue
-        if object_type != "blob":
+        if entry.object_type != "blob":
             raise RepositoryScanError(
-                f"unsupported Git object type {object_type!r} for tracked path {raw!r}"
+                f"unsupported Git object type {entry.object_type!r} for tracked path {entry.path!r}"
             )
 
-        byte_count, sha256, sample = _hash_git_blob(context, object_id, SAMPLE_BYTES)
-        git_kind = "symlink" if mode == _MODE_SYMLINK else "file"
-        files.append(_indexed_file(artifact_path, git_kind, object_id, byte_count, sha256, sample))
+        byte_count, sha256, sample = _hash_git_blob(context, entry.object_id, SAMPLE_BYTES)
+        git_kind = "symlink" if entry.mode == _MODE_SYMLINK else "file"
+        files.append(_indexed_file(entry.path, git_kind, entry.object_id, byte_count, sha256, sample))
 
     return _finalize(files)
 

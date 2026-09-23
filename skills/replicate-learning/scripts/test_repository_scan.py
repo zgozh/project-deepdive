@@ -78,6 +78,42 @@ def init_git_repo(root: Path, files: dict[str, bytes]) -> str:
     return run_git_bytes(root, "rev-parse", "HEAD").stdout.decode("ascii").strip()
 
 
+def create_symlink_or_skip(testcase, link: Path, target: Path | str, target_is_directory=False):
+    try:
+        os.symlink(target, link, target_is_directory=target_is_directory)
+    except (NotImplementedError, OSError) as exc:
+        testcase.skipTest(f"creating symlinks is not permitted on this platform: {exc}")
+
+
+def create_junction_or_skip(testcase, link: Path, target: Path):
+    if os.name != "nt":
+        testcase.skipTest("Windows junction/reparse-point case")
+
+    def quote_powershell(value: Path) -> str:
+        return "'" + str(value).replace("'", "''") + "'"
+
+    command = (
+        f"New-Item -ItemType Junction -Path {quote_powershell(link)} "
+        f"-Target {quote_powershell(target)} -ErrorAction Stop | Out-Null"
+    )
+    failure = "PowerShell is unavailable"
+    for executable in ("powershell.exe", "powershell", "pwsh"):
+        try:
+            result = subprocess.run(
+                [executable, "-NoProfile", "-NonInteractive", "-Command", command],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except OSError as exc:
+            failure = str(exc)
+            continue
+        if result.returncode == 0:
+            return
+        failure = result.stderr.strip() or result.stdout.strip() or f"exit {result.returncode}"
+    testcase.skipTest(f"cannot create a Windows junction on this host: {failure}")
+
+
 def tracked_count(repo) -> int:
     """Count tracked paths with NUL delimiters so odd path bytes stay one path."""
     raw = run_git_bytes(repo, "ls-files", "-z").stdout
@@ -371,6 +407,67 @@ class SnapshotContentTests(unittest.TestCase):
             self.assertEqual("symlink", files["link.txt"].content_kind)
             self.assertEqual(len(b"real.txt"), files["link.txt"].byte_count)
             self.assertEqual(hashlib.sha256(b"real.txt").hexdigest(), files["link.txt"].sha256)
+
+            from coverage_audit import audit_coverage
+
+            artifacts = scan_repository(ScanOptions(
+                root=repo,
+                snapshot_kind="worktree",
+                generated_at="2026-09-22T00:00:00Z",
+            ))
+            audited = audit_coverage(artifacts.project_index, artifacts.coverage, repo)
+            self.assertEqual("PASS", audited.status, audited.violations)
+
+    def test_regular_worktree_paths_reject_symlink_or_junction_escapes(self):
+        from coverage_audit import audit_coverage
+
+        if os.name == "nt":
+            escape_kinds = ("junction-ancestor",)
+        else:
+            escape_kinds = ("final-symlink", "ancestor-symlink")
+
+        for escape_kind in escape_kinds:
+            with self.subTest(escape_kind=escape_kind), tempfile.TemporaryDirectory() as tmp:
+                base = Path(tmp)
+                repo = base / "repo"
+                init_git_repo(repo, {"src/regular.py": b"inside\n"})
+                artifacts = scan_repository(ScanOptions(
+                    root=repo,
+                    snapshot_kind="worktree",
+                    generated_at="2026-09-22T00:00:00Z",
+                ))
+                outside = base / "outside"
+                outside.mkdir()
+                (outside / "regular.py").write_bytes(b"external payload\n")
+
+                if escape_kind == "final-symlink":
+                    tracked = repo / "src" / "regular.py"
+                    tracked.unlink()
+                    create_symlink_or_skip(self, tracked, outside / "regular.py")
+                else:
+                    tracked_parent = repo / "src"
+                    shutil.rmtree(tracked_parent)
+                    if escape_kind == "junction-ancestor":
+                        create_junction_or_skip(self, tracked_parent, outside)
+                        self.addCleanup(
+                            lambda path=tracked_parent: os.rmdir(path)
+                            if os.path.lexists(path) else None
+                        )
+                    else:
+                        create_symlink_or_skip(
+                            self, tracked_parent, outside, target_is_directory=True,
+                        )
+
+                with self.assertRaisesRegex(RepositoryScanError, "symlink|junction|reparse|outside"):
+                    scan_repository(ScanOptions(
+                        root=repo,
+                        snapshot_kind="worktree",
+                        generated_at="2026-09-22T00:00:00Z",
+                    ))
+
+                result = audit_coverage(artifacts.project_index, artifacts.coverage, repo)
+                self.assertEqual("FAIL", result.status)
+                self.assertEqual({"SNAPSHOT_PATH_UNSAFE"}, {item.code for item in result.violations})
 
     def test_gitlink_payload_hashes_the_object_id_and_is_not_traversed(self):
         with tempfile.TemporaryDirectory() as tmp:

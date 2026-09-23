@@ -437,7 +437,7 @@ _CI_NAMES = frozenset({
     "bitbucket-pipelines.yml", "buildkite.yml", "buildkite.yaml", "ci.yml", "ci.yaml",
     ".drone.yml", "cloudbuild.yaml",
 })
-_CI_COMPONENTS = frozenset({".circleci", "workflows"})
+_CI_COMPONENTS = frozenset({".circleci"})
 _INFRASTRUCTURE_NAMES = frozenset({
     "containerfile", "docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml",
     "nginx.conf", "caddy.conf", "procfile", "vagrantfile", "skaffold.yaml",
@@ -555,6 +555,8 @@ def _is_ci(components: tuple[str, ...], name: str) -> bool:
     if name in _CI_NAMES:
         return True
     if name == ".gitlab-ci.yml" or name == ".gitlab-ci.yaml":
+        return True
+    if len(components) >= 2 and components[0] == ".github" and components[1] == "workflows":
         return True
     return any(component in _CI_COMPONENTS for component in components)
 

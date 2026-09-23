@@ -51,6 +51,12 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         project_index = load_artifact(args.project_index)
+    except ArtifactValidationError as exc:
+        print("status=FAIL indexed_files=0 coverage_entries=0 unknown_files=0")
+        print(f"violation SCHEMA_INVALID {args.project_index}: {exc}")
+        return EXIT_FAILURE
+
+    try:
         coverage = load_artifact(args.coverage)
     except ArtifactValidationError as exc:
         print("status=FAIL indexed_files=0 coverage_entries=0 unknown_files=0")
