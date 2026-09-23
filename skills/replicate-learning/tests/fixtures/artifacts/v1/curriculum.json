@@ -1,0 +1,39 @@
+{
+  "artifact_kind": "curriculum",
+  "schema_version": "1.0.0",
+  "repository_revision": "1463a06437fc903edec24722ecbb686a46d8f9da",
+  "generated_at": "2026-09-22T00:00:00Z",
+  "learner_profile": "BEGINNER",
+  "units": [
+    {
+      "id": "unit:fixture-purpose",
+      "order": 1,
+      "title": "Why the py_mini fixture exists",
+      "kind": "project-purpose",
+      "depth": 1,
+      "prerequisite_ids": [],
+      "graph_node_ids": ["project:py-mini"],
+      "evidence_ids": ["EVID-py-mini-fixture-contract"]
+    },
+    {
+      "id": "unit:python-functions",
+      "order": 2,
+      "title": "Python functions and calls used by the fixture",
+      "kind": "prerequisite",
+      "depth": 2,
+      "prerequisite_ids": [],
+      "graph_node_ids": ["concept:python-function"],
+      "evidence_ids": []
+    },
+    {
+      "id": "unit:account-label-flow",
+      "order": 3,
+      "title": "Trace account_label to fetch_account",
+      "kind": "workflow",
+      "depth": 4,
+      "prerequisite_ids": ["unit:python-functions"],
+      "graph_node_ids": ["symbol:account_label", "symbol:fetch_account"],
+      "evidence_ids": ["EVID-py-mini-source"]
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://project-deepdive.dev/schemas/v1/quality-report.schema.json",
+  "title": "Project DeepDive v1 Quality Report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["artifact_kind", "schema_version", "repository_revision", "generated_at", "mode", "status", "gates", "critical_gaps", "warnings"],
+  "properties": {
+    "artifact_kind": {"const": "quality-report"},
+    "schema_version": {"const": "1.0.0"},
+    "repository_revision": {"type": "string", "minLength": 1},
+    "generated_at": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"},
+    "mode": {"enum": ["FAST", "DEEP"]},
+    "status": {"enum": ["PASS", "PASS_WITH_WARNINGS", "PARTIAL", "FAIL", "NOT_RUN"]},
+    "gates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "result", "measurements", "failures", "warnings", "evidence_ids", "recommended_repair"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^G[0-9]{2}$"},
+          "result": {"enum": ["PASS", "PASS_WITH_WARNINGS", "PARTIAL", "FAIL", "NOT_RUN"]},
+          "measurements": {"type": "object", "additionalProperties": true},
+          "failures": {"type": "array", "items": {"type": "string", "minLength": 1}},
+          "warnings": {"type": "array", "items": {"type": "string", "minLength": 1}},
+          "evidence_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
+          "recommended_repair": {"type": "string"}
+        }
+      }
+    },
+    "critical_gaps": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "warnings": {"type": "array", "items": {"type": "string", "minLength": 1}}
+  }
+}

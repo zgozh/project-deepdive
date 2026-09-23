@@ -1,0 +1,5 @@
+Deliberate unknown payload for the Phase 2 scanner fixture.
+
+This file uses an extension no deterministic built-in rule recognises, so the
+scanner must report it as UNKNOWN until a human exact-path override records its
+role and evidence.  It contains no secret and no binary data.

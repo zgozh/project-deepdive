@@ -1,0 +1,31 @@
+{
+  "artifact_kind": "coverage",
+  "schema_version": "1.0.0",
+  "repository_revision": "1463a06437fc903edec24722ecbb686a46d8f9da",
+  "generated_at": "2026-09-22T00:00:00Z",
+  "tracked_file_count": 3,
+  "unknown_count": 0,
+  "entries": [
+    {
+      "path": "plan.json",
+      "surface": "fixture",
+      "classification": "CLASSIFIED",
+      "teaching_status": "NOT_APPLICABLE",
+      "reason": "Positive source-injection plan for the py_mini regression fixture."
+    },
+    {
+      "path": "plan_bad_keys.json",
+      "surface": "fixture",
+      "classification": "CLASSIFIED",
+      "teaching_status": "NOT_APPLICABLE",
+      "reason": "Negative annotation-key cases used by deterministic preflight tests."
+    },
+    {
+      "path": "project/app/sample.py",
+      "surface": "other",
+      "classification": "COVERED",
+      "teaching_status": "LOCATED",
+      "reason": "Synthetic Python regression module with SQLite access functions."
+    }
+  ]
+}

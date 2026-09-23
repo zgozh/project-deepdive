@@ -1,0 +1,31 @@
+{
+  "artifact_kind": "evidence",
+  "schema_version": "1.0.0",
+  "repository_revision": "1463a06437fc903edec24722ecbb686a46d8f9da",
+  "generated_at": "2026-09-22T00:00:00Z",
+  "items": [
+    {
+      "id": "EVID-py-mini-source",
+      "level": "E1",
+      "kind": "source",
+      "summary": "The fixture imports sqlite3 and defines fetch_account, account_label, and connect.",
+      "confidence": 1.0,
+      "locator": {
+        "path": "project/app/sample.py",
+        "line_start": 11,
+        "line_end": 38
+      }
+    },
+    {
+      "id": "EVID-py-mini-fixture-contract",
+      "level": "E2",
+      "kind": "test",
+      "summary": "The committed injection plan identifies sample.py as Python source and records real source-line annotations.",
+      "confidence": 1.0,
+      "locator": {
+        "path": "plan.json",
+        "observation": "The plan targets app/sample.py under the fixture's project source root."
+      }
+    }
+  ]
+}

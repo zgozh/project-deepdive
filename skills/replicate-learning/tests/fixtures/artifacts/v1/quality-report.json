@@ -1,0 +1,43 @@
+{
+  "artifact_kind": "quality-report",
+  "schema_version": "1.0.0",
+  "repository_revision": "1463a06437fc903edec24722ecbb686a46d8f9da",
+  "generated_at": "2026-09-22T00:00:00Z",
+  "mode": "FAST",
+  "status": "PARTIAL",
+  "gates": [
+    {
+      "id": "G01",
+      "result": "PASS",
+      "measurements": {"tracked_files": 3, "indexed_files": 3, "unknown_files": 0},
+      "failures": [],
+      "warnings": [],
+      "evidence_ids": ["EVID-py-mini-source"],
+      "recommended_repair": ""
+    },
+    {
+      "id": "G06",
+      "result": "PARTIAL",
+      "measurements": {"verified_edges": 2, "inferred_edges": 1},
+      "failures": [],
+      "warnings": ["The fixture graph is authored contract data; automatic call-graph extraction is not implemented in Phase 1."],
+      "evidence_ids": ["EVID-py-mini-source"],
+      "recommended_repair": "Implement and verify static analyzers in Phase 3."
+    },
+    {
+      "id": "G19",
+      "result": "NOT_RUN",
+      "measurements": {},
+      "failures": [],
+      "warnings": ["Phase 1 performs no runtime analysis."],
+      "evidence_ids": [],
+      "recommended_repair": "Run safe Deep Mode runtime capture in Phase 10."
+    }
+  ],
+  "critical_gaps": [
+    "The fixture proves artifact contracts and validation only; it is not a complete Project DeepDive pipeline or dogfood result."
+  ],
+  "warnings": [
+    "py_mini is a synthetic Python regression fixture, not the required non-trivial Python Agent dogfood."
+  ]
+}

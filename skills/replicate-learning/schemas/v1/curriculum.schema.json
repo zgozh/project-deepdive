@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://project-deepdive.dev/schemas/v1/curriculum.schema.json",
+  "title": "Project DeepDive v1 Curriculum",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["artifact_kind", "schema_version", "repository_revision", "generated_at", "learner_profile", "units"],
+  "properties": {
+    "artifact_kind": {"const": "curriculum"},
+    "schema_version": {"const": "1.0.0"},
+    "repository_revision": {"type": "string", "minLength": 1},
+    "generated_at": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"},
+    "learner_profile": {"enum": ["BEGINNER", "INTERMEDIATE", "ADVANCED"]},
+    "units": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "order", "title", "kind", "depth", "prerequisite_ids", "graph_node_ids", "evidence_ids"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "order": {"type": "integer", "minimum": 1},
+          "title": {"type": "string", "minLength": 1},
+          "kind": {"enum": ["project-purpose", "prerequisite", "business", "architecture", "workflow", "source", "mechanism", "failure", "vibecoding", "extension", "interview", "review"]},
+          "depth": {"type": "integer", "minimum": 0, "maximum": 8},
+          "prerequisite_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
+          "graph_node_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
+          "evidence_ids": {"type": "array", "items": {"type": "string", "minLength": 1}}
+        }
+      }
+    }
+  }
+}

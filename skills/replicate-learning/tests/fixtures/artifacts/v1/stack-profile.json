@@ -1,0 +1,22 @@
+{
+  "artifact_kind": "stack-profile",
+  "schema_version": "1.0.0",
+  "repository_revision": "1463a06437fc903edec24722ecbb686a46d8f9da",
+  "generated_at": "2026-09-22T00:00:00Z",
+  "detections": [
+    {
+      "category": "language",
+      "name": "Python",
+      "status": "VERIFIED",
+      "confidence": 1.0,
+      "evidence_ids": ["EVID-py-mini-source"]
+    },
+    {
+      "category": "database",
+      "name": "SQLite via Python sqlite3",
+      "status": "VERIFIED",
+      "confidence": 1.0,
+      "evidence_ids": ["EVID-py-mini-source"]
+    }
+  ]
+}

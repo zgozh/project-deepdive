@@ -1,0 +1,3 @@
+This file represents a build output that a Maven build would regenerate
+into target/.  It is committed on purpose so the Phase 2 scanner fixture has a
+generated-surface path to classify.

@@ -1,0 +1,12 @@
+spring:
+  application:
+    name: order-service
+  datasource:
+    url: jdbc:h2:mem:orders
+    username: fixture
+    password: fixture
+server:
+  port: 8080
+logging:
+  level:
+    root: INFO

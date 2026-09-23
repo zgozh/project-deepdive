@@ -1,0 +1,69 @@
+{
+  "artifact_kind": "knowledge-graph",
+  "schema_version": "1.0.0",
+  "repository_revision": "1463a06437fc903edec24722ecbb686a46d8f9da",
+  "generated_at": "2026-09-22T00:00:00Z",
+  "nodes": [
+    {
+      "id": "project:py-mini",
+      "type": "Project",
+      "label": "py_mini regression fixture",
+      "evidence_ids": ["EVID-py-mini-fixture-contract"],
+      "properties": {"scope": "synthetic regression fixture"}
+    },
+    {
+      "id": "file:project/app/sample.py",
+      "type": "File",
+      "label": "Python SQLite fixture module",
+      "evidence_ids": ["EVID-py-mini-source"],
+      "properties": {"path": "project/app/sample.py"}
+    },
+    {
+      "id": "symbol:fetch_account",
+      "type": "Symbol",
+      "label": "fetch_account",
+      "evidence_ids": ["EVID-py-mini-source"],
+      "properties": {"line": 19}
+    },
+    {
+      "id": "symbol:account_label",
+      "type": "Symbol",
+      "label": "account_label",
+      "evidence_ids": ["EVID-py-mini-source"],
+      "properties": {"line": 28}
+    },
+    {
+      "id": "concept:python-function",
+      "type": "Concept",
+      "label": "Python function call",
+      "evidence_ids": [],
+      "properties": {"knowledge_scope": "general"}
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge:fetch-part-of-file",
+      "type": "PART_OF",
+      "from": "symbol:fetch_account",
+      "to": "file:project/app/sample.py",
+      "status": "VERIFIED",
+      "evidence_ids": ["EVID-py-mini-source"]
+    },
+    {
+      "id": "edge:label-calls-fetch",
+      "type": "CALLS",
+      "from": "symbol:account_label",
+      "to": "symbol:fetch_account",
+      "status": "VERIFIED",
+      "evidence_ids": ["EVID-py-mini-source"]
+    },
+    {
+      "id": "edge:label-requires-function",
+      "type": "REQUIRES_CONCEPT",
+      "from": "symbol:account_label",
+      "to": "concept:python-function",
+      "status": "INFERRED",
+      "evidence_ids": []
+    }
+  ]
+}

@@ -3,6 +3,8 @@
 > 把**一个真实代码库**转化为**一套可追溯、可机检、可续传的工程学习资产**的 Agent Skill。
 > 默认交付**第一册项目源码与工程实现**；第二、三册需用户明确提出。每条源码结论都保留可复检的证据。
 
+> **Project DeepDive 演进状态：** 本仓库正在兼容升级。现有 replicate-learning 批次流水线继续可用；当前已落地第一组 Project DeepDive v1 版本化中间产物契约、标准库校验器与真实夹具，以及 Phase 2 的确定性仓库扫描与覆盖切片（Git tracked-file 清单 → 确定性文件类型 → surface/覆盖分类 → `project-index.json` + `coverage.json` → 语义/G01 审计）。AST、语言/框架 adapter、stack-profile、Knowledge Graph 构建和 Handbook compiler 仍属于后续 Phase，不在这里提前宣称可用。
+
 [![判据版本](https://img.shields.io/badge/判据-v2.31-blue)](skills/replicate-learning/references/第一册质量细则.md)
 [![自检](https://img.shields.io/badge/selfcheck-122%20项%200%20失败-brightgreen)](skills/replicate-learning/scripts/skill_selfcheck.py)
 [![License](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
@@ -19,7 +21,7 @@
 - [六、它怎么跑：七阶段 A~G](#六它怎么跑七阶段-ag)
 - [七、批次教材的十七节结构](#七批次教材的十七节结构)
 - [八、质量怎么保证：闸门 / SSOT / 血证 / 判据版本](#八质量怎么保证闸门--ssot--血证--判据版本)
-- [九、自带工具（21 个脚本）](#九自带工具21-个脚本)
+- [九、自带工具（28 个脚本）](#九自带工具28-个脚本)
 - [十、仓库结构](#十仓库结构)
 - [十一、证据等级](#十一证据等级)
 - [十二、硬约束与能力边界](#十二硬约束与能力边界)
@@ -91,7 +93,7 @@ python scripts/skill_selfcheck.py             # 期望：检查项 122，失败 
 python scripts/v2_selfcheck.py                # 期望：V2 self-check: PASS (6 contract entries)
 ```
 
-> 单元测试（可选，12 个 `test_*.py` 共 165 项）：
+> 单元测试（可选，17 个 `test_*.py` 共 320 项）：
 > `python -m unittest discover -s scripts -p "test_*.py" -t scripts`
 >
 > Windows 提示：若把工具输出重定向到文件却看到 `UnicodeEncodeError`，说明用的是旧版本脚本——
@@ -316,7 +318,7 @@ python scripts/batch_preflight.py --src <源码根> --plan <注释计划.json> [
 
 ---
 
-## 九、自带工具（21 个脚本）
+## 九、自带工具（28 个脚本）
 
 | 脚本 | 干什么 |
 |---|---|
@@ -341,8 +343,45 @@ python scripts/batch_preflight.py --src <源码根> --plan <注释计划.json> [
 | `sync_gate_result.py` | 把闸门结果写进 ⑯ 段：`--result-json` 从结构化结果渲染，验哈希后才盖章，盖章后复跑并记最终哈希 |
 | `fix_circled_sections.py` | 修复一级节标题带圈数字丢失（丢码会让整节检查静默失效） |
 | `polish_fix.py` | ⑥/⑫ 排版整形（断段、列表化、标记段空行） |
+| `artifact_contract.py` | Project DeepDive v1 中间产物的 schema 注册、严格校验与规范化 JSON 序列化（仅标准库） |
+| `validate_artifact.py` | 命令行校验一个或多个 v1 产物；失败返回非零并报告具体 JSON 路径 |
+| `repository_scan.py` | Phase 2 确定性仓库清单：NUL 分隔的 Git 路径枚举、worktree/git-tree 两种快照、流式哈希、strict exact-path override 装载、两个 v1.1 产物的组装与内存内校验 |
+| `file_classification.py` | Phase 2 纯函数文件类型判定（不查宿主 MIME 注册表）与有序 surface 规则；输出固定的 rule ID 词表，从不输出 `COVERED` |
+| `coverage_audit.py` | Phase 2 可复用 G01 语义审计：计数、revision/时间戳一致、路径集合相等、v1.1 字段、规则 ID、secondary surface 顺序、reason、`UNKNOWN` 计数与快照存在/大小/哈希 |
+| `scan_repository.py` | Phase 2 扫描 CLI：先构建/规范化/审计两个产物，再经临时文件替换发布；失败不覆盖既有产物 |
+| `validate_coverage.py` | Phase 2 审计 CLI：输出 status、计数与逐条 violation，失败返回非零 |
 
 > 工具随技能发布：规程里写着"必须做"的步骤，其执行工具必须在 `scripts/` 下、被文档引用、被自检覆盖。留在会话临时目录里的脚本等于没有。
+
+### Project DeepDive v1 产物校验
+
+七类首版产物位于 `skills/replicate-learning/schemas/v1/`：project index、stack profile、evidence、coverage、knowledge graph、curriculum 和 quality report。校验单个产物：
+
+```bash
+python scripts/validate_artifact.py tests/fixtures/artifacts/v1/project-index.json
+```
+
+成功会打印产物 kind/version 并返回 0；缺字段、类型错误、未知 kind 或不支持的主版本会返回 1，并定位到 `$` 开头的 JSON 路径。`tests/fixtures/artifacts/v1/` 的数据来自仓库内 `py_mini` 真实夹具，同时明确把尚未执行的运行时/后续质量门标成 `NOT_RUN` 或 `PARTIAL`。
+
+### Phase 2 仓库扫描与覆盖审计
+
+Phase 2 只对 `project-index` 与 `coverage` 输出 `1.1.0`；旧 `1.0.0` 产物继续有效，其余五类产物仍只接受 `1.0.0`。最小扫描与严格审计：
+
+```bash
+# 扫描：Git tracked 文件 → 确定性类型/surface 分类 → 两个产物
+python scripts/scan_repository.py --root <git 仓库或子目录> --out <产物目录> \
+  --snapshot worktree --generated-at 2026-09-22T00:00:00Z
+
+# 加上 --overrides 消除含糊文件，并要求零 UNKNOWN
+python scripts/scan_repository.py --root <git 仓库或子目录> --out <产物目录> \
+  --overrides <overrides.json> --require-complete
+
+# 对已有产物做语义审计
+python scripts/validate_coverage.py --project-index <产物目录>/project-index.json \
+  --coverage <产物目录>/coverage.json --root <被分析根> --require-complete
+```
+
+退出码 `0` = 成功（未加 `--require-complete` 时允许 `PARTIAL`，即仍有诚实的 `UNKNOWN`）；`1` = 产物/审计/完整性失败；`2` = 用法或运行错误（非 Git 根、缺 `HEAD`、override 非法等）。扫描失败不会覆盖既有有效产物。规则优先级、稳定 rule ID、快照语义、override JSON 形状与 `CLASSIFIED`/`COVERED` 的区别见 `skills/replicate-learning/references/coverage-policy.md`。
 
 ---
 
@@ -360,9 +399,10 @@ replicate-learning/
     ├── docs/              (3)     安装与执行边界、通用学习方法、V2 试运行手册（archive/）
     ├── examples/          (2)     黄金样例（Java / Python）
     ├── references/       (30)     执行协议 + 全部讲解与工程模板 + 黄金样例节选
-    ├── scripts/          (21)     上表 21 个工具（另有 11 个 test_*.py 行为自测）
+    ├── schemas/           (8)     Project DeepDive v1 七类产物 schema + 版本说明
+    ├── scripts/          (28)     上表 28 个工具（另有 17 个 test_*.py 行为自测）
     ├── spec/              (7)     质量契约 SSOT、血证档案、操作手册、阶段工作流
-    └── tests/fixtures/            回归夹具（batch48 真实批次 + py_mini 合成边界用例）
+    └── tests/fixtures/            回归夹具（batch48 真实批次 + py_mini 合成边界用例 + repository_scanner 三类 Phase 2 夹具模板）
 ```
 
 入口是 `skills/replicate-learning/SKILL.md`。触发后先按意图读 `references/第一册执行协议.md`（扩展册看 `V2执行协议.md`），再按任务类型读对应模板——**不要求把全部文档一次性装入上下文**。

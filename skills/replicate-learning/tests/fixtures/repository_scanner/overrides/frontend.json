@@ -1,0 +1,10 @@
+{
+  "schema_version": "1.0.0",
+  "entries": {
+    "mystery.odd": {
+      "surface": "tooling",
+      "classification": "CLASSIFIED",
+      "reason": "Repository-owned generator input documented by the project."
+    }
+  }
+}

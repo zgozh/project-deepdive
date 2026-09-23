@@ -1,0 +1,34 @@
+{
+  "artifact_kind": "project-index",
+  "schema_version": "1.0.0",
+  "repository_revision": "1463a06437fc903edec24722ecbb686a46d8f9da",
+  "generated_at": "2026-09-22T00:00:00Z",
+  "project": {
+    "name": "py_mini",
+    "root": "tests/fixtures/py_mini",
+    "vcs": "git",
+    "dirty": false,
+    "snapshot_kind": "git-tree"
+  },
+  "file_count": 3,
+  "files": [
+    {
+      "path": "plan.json",
+      "bytes": 1353,
+      "sha256": "d813220e304e92748543b5a88d19c0d57ed96fb1e0962b2bd0a355f000b1bea9",
+      "tracked": true
+    },
+    {
+      "path": "plan_bad_keys.json",
+      "bytes": 440,
+      "sha256": "d1f180d819e5bd5d1eca1fcf23933d4bd2ac3e6e905a9fc88a2af0499c0a7941",
+      "tracked": true
+    },
+    {
+      "path": "project/app/sample.py",
+      "bytes": 1217,
+      "sha256": "d05328d74f9a9ba1c955224b8b5a9a186e0645e1882128d6246321dfb989b0c3",
+      "tracked": true
+    }
+  ]
+}

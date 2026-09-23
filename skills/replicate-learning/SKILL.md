@@ -57,3 +57,23 @@ description: 当用户要学习、逐批讲解或继续拆解本地或开源项�
 现有项目迁移：用户原本明确要求第一册优先时转为普通默认模式，旧暂停文字留在历史，不再生成二、三册欠账；明确要求三册同步且尚未撤销的项目保留三册范围。旧教材按其声明版本核验，不为新默认批量改写。
 
 扩展册说明见 `references/三本书与工程日志.md`。既有脚本的参数、故障处理和历史判据在 `spec/操作手册-闸门与工具.md`，本入口只给当前工作顺序。
+
+## Project DeepDive v1 中间产物（兼容演进）
+
+仓库升级期间保留上述批次工作流。新增的七类 Project DeepDive v1 中间产物定义在 `schemas/README.md` 与 `schemas/v1/`；它们由 `scripts/artifact_contract.py` 按版本严格校验，并可运行 `python scripts/validate_artifact.py <artifact.json> [...]` 做命令行检查。
+
+Phase 2 已落地确定性的仓库扫描与覆盖切片（只对 `project-index` 与 `coverage` 输出 `1.1.0`，旧 `1.0.0` 产物继续有效）：
+
+```bash
+python scripts/scan_repository.py --root <git 仓库或子目录> --out <产物目录> [--snapshot worktree|git-tree] [--overrides <overrides.json>] [--generated-at YYYY-MM-DDTHH:MM:SSZ] [--require-complete]
+python scripts/validate_coverage.py --project-index <project-index.json> --coverage <coverage.json> --root <被分析根> [--require-complete]
+```
+
+- `scripts/repository_scan.py`：NUL 分隔的 Git 路径枚举（`git ls-files --stage -z` / `git ls-tree -r -z`）、worktree 与 git-tree 两种快照、流式哈希、严格 exact-path override 装载、两个产物的组装与内存内 schema 校验。不使用 `shell=True`，不执行目标仓库代码或 Git hook，不把文件正文写进产物或日志。
+- `scripts/file_classification.py`：纯函数的确定性文件类型判定（不查宿主 MIME 注册表）与有序 surface 规则；规则 ID 为固定词表。Phase 2 从不输出 `COVERED`；识别到但无架构依据的文件是 `CLASSIFIED`/`other`，含糊文件保留 `UNKNOWN`。
+- `scripts/coverage_audit.py`：可复用的 G01 语义审计（计数、revision/时间戳一致、路径集合相等、v1.1 字段、规则 ID、secondary surface 顺序、reason、`UNKNOWN` 计数、快照存在/大小/哈希、gitlink 载荷、git-tree 对象解析）。任何不一致都是失败而不是告警。
+- `scripts/scan_repository.py` / `scripts/validate_coverage.py`：薄 CLI。扫描先构建、规范化并在内存内审计两个产物，再用同目录临时文件替换；失败不覆盖既有有效产物。退出码：`0` 成功（未加 `--require-complete` 时允许 `PARTIAL`）、`1` 产物/审计/完整性失败、`2` 用法或运行错误（非 Git 根、缺 HEAD、override 非法等）。
+
+规则优先级、稳定规则 ID、快照语义、override JSON 形状、敏感文件行为，以及 `CLASSIFIED` 与 `COVERED` 的区别见 `references/coverage-policy.md`。三类夹具仓库（Python / Java / 前端）在 `tests/fixtures/repository_scanner/`，其 override 样例是 `tests/fixtures/repository_scanner/overrides/frontend.json`。
+
+当前只实现上述契约、校验、扫描与覆盖审计；AST、语言/框架 adapter、stack-profile、知识图谱、课程与教材编译仍属于后续 Phase，未被提前宣称可用。
