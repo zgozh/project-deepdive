@@ -35,7 +35,13 @@ The mode names below are **natural-language intent labels**, not commands. Route
 
 For `project-book`, choose from the user's request and actual inputs. Use the direct-source guide for a normal learning draft, missing/partial extraction, or absent authenticated inputs. Use the authenticated lifecycle only when that binding or publication is requested and its real inputs satisfy the documented prerequisites. If those prerequisites are absent, a human-reviewed draft can still be written; state that no formal receipt was issued. Do not run compilation, lifecycle, or target-project tests solely because the tools exist.
 
+When the user explicitly requests a complete book or sustained multi-chapter route, build an ordered semantic book plan from the real project and continue through its planned work without stopping for another confirmation after every chapter. Save a concise Markdown checkpoint at meaningful milestones, not after every edit. Pause only when required information, host permissions, or available usage prevents the next step, or when the user explicitly pauses; record the reason and the next concrete action. Keep manuscript draft, source review, teaching review, and reader-copy/publication states separate. A draft never inherits acceptance from hashes or tools. On resumption, read the saved record and current repository state, invalidate only evidence affected by real source changes, and reuse still-valid evidence. If no checkpoint exists, reconstruct progress from actual files and mark uncertainty; never claim to recover deleted files or unsaved conversation content. This uses ordinary user-authorized files and does not require a special CLI or checkpoint schema.
+
 If intent spans modes, preserve the user's requested order and do only the needed steps. Existing files and valid evidence should be reused; do not rescan, regenerate a book, or run a runtime test merely because a mode can use those tools.
+
+Each checkpoint should record the project and output roots, actual revision and worktree state or `UNKNOWN`, the ordered route, current topic and manuscript path, evidence paths, separate manuscript/source-review/teaching-review/copy states, unknowns or blockers, and the next concrete operation. Use the package-local [checkpoint guide](docs/中断恢复与模型适配.md); this is a plain progress note, not a new schema.
+
+In this Skill, a checkpoint is a concise Markdown progress record saved in a user-approved output location; it is not a formal lifecycle receipt.
 
 ## Teaching contract
 
@@ -92,6 +98,6 @@ Answer books, general learning units, curriculum run/resume/repair, whole-book a
 
 ## Formal product requirements
 
-The package carries complete mirrors of [Quality Gates](references/product-quality-gates.md) and [Acceptance Criteria](references/product-acceptance-criteria.md) so installed use does not depend on repository-root files. The root `QUALITY_GATES.md` and `ACCEPTANCE_CRITERIA.md` remain authoritative; synchronize their package mirrors when either changes. Do not weaken or reinterpret a formal gate based on a helper's output.
+The package carries complete mirrors of [Quality Gates](references/product-quality-gates.md) and [Acceptance Criteria](references/product-acceptance-criteria.md); an installed copy uses these package-local documents and does not require the development repository. When maintaining this package in the development repository, treat root `QUALITY_GATES.md` and `ACCEPTANCE_CRITERIA.md` as the source for synchronizing the package mirrors. Do not weaken or reinterpret a formal gate based on a helper's output.
 
 Use [the reference index](references/README.md) to find other package-local templates and compatibility material. Repository plans and historical reports are optional archives, never required to use this Skill.
