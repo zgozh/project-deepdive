@@ -1,0 +1,125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://project-deepdive.dev/schemas/v1/claim-evidence-graph.schema.json",
+  "title": "Project DeepDive v1.0 Claim/Evidence Graph Overlay",
+  "description": "A compact source-authenticated overlay for explicitly audited claims and their resolved evidence citations.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "artifact_kind",
+    "schema_version",
+    "repository_revision",
+    "generated_at",
+    "status",
+    "snapshot_kind",
+    "source_metadata",
+    "source_run",
+    "audit_status",
+    "input_digests",
+    "nodes",
+    "edges"
+  ],
+  "properties": {
+    "artifact_kind": {"const": "claim-evidence-graph"},
+    "schema_version": {"const": "1.0.0"},
+    "repository_revision": {"type": "string", "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"},
+    "generated_at": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"},
+    "status": {"enum": ["PASS", "PARTIAL"]},
+    "snapshot_kind": {"enum": ["worktree", "git-tree"]},
+    "source_metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["snapshot_kind", "g01_status", "unknown_files", "project_index_sha256", "coverage_sha256"],
+      "properties": {
+        "snapshot_kind": {"enum": ["worktree", "git-tree"]},
+        "g01_status": {"enum": ["PASS", "PARTIAL"]},
+        "unknown_files": {"type": "integer", "minimum": 0},
+        "project_index_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "coverage_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "source_run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact_kind", "schema_version", "manifest_sha256", "status", "members"],
+      "properties": {
+        "artifact_kind": {"const": "phase3-run"},
+        "schema_version": {"const": "1.0.0"},
+        "manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "status": {"enum": ["PASS", "PARTIAL"]},
+        "members": {
+          "type": "array",
+          "minItems": 4,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "artifact_kind", "schema_version", "sha256"],
+            "properties": {
+              "path": {"type": "string", "pattern": "^(phase2/(project-index|coverage)\\.json|phase3a/(stack-profile|evidence)\\.json|python/(static-analysis|evidence)\\.json|java-v12/(static-analysis|evidence)\\.json|java-v13/(static-analysis|evidence)\\.json|frontend/(static-analysis|evidence)\\.json)$"},
+              "artifact_kind": {"enum": ["project-index", "coverage", "stack-profile", "evidence", "static-analysis"]},
+              "schema_version": {"type": "string", "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"},
+              "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+            }
+          }
+        }
+      }
+    },
+    "audit_status": {"enum": ["PASS", "PARTIAL", "FAIL"]},
+    "input_digests": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["role", "artifact_kind", "schema_version", "sha256"],
+        "properties": {
+          "role": {"enum": ["base_graph", "base_evidence", "semantic_proposals", "claim_candidates", "claim_evidence"]},
+          "artifact_kind": {"enum": ["knowledge-graph", "evidence", "semantic-proposals", "claim-candidates", "claim-evidence"]},
+          "schema_version": {"enum": ["1.0.0", "1.1.0", "1.2.0"]},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        }
+      }
+    },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "type", "label", "properties"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^(CLAIM-[0-9a-f]{64}|EVID-[A-Za-z0-9._:-]+)$"},
+          "type": {"enum": ["Claim", "Evidence"]},
+          "label": {"type": "string", "minLength": 1},
+          "properties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "category": {"enum": ["project_fact", "architecture", "call_chain", "runtime", "general"]},
+              "critical": {"type": "boolean"},
+              "disposition": {"enum": ["SUPPORTED", "INFERENCE", "UNVERIFIED"]},
+              "reason_codes": {"type": "array", "items": {"type": "string"}},
+              "cited_evidence_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
+              "level": {"enum": ["E0", "E1", "E2", "E3", "E4", "E5", "E6"]},
+              "provisional": {"type": "boolean"}
+            }
+          }
+        }
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "type", "from", "to"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^CLAIM-EVIDENCE-[0-9a-f]{64}$"},
+          "type": {"const": "EVIDENCED_BY"},
+          "from": {"type": "string", "pattern": "^CLAIM-[0-9a-f]{64}$"},
+          "to": {"type": "string", "pattern": "^EVID-[A-Za-z0-9._:-]+$"}
+        }
+      }
+    }
+  }
+}

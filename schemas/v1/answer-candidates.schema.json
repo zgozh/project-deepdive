@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://project-deepdive.dev/schemas/v1/answer-candidates.schema.json",
+  "title": "Project DeepDive Phase 6D1 Answer Candidates",
+  "description": "Writer-authored answers bound to one authenticated reviewed chapter and its unchanged question bank.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["artifact_kind", "schema_version", "repository_revision", "generated_at", "snapshot_kind", "source_run_manifest_sha256", "chapter_id", "chapter_sha256", "chapter_facts_sha256", "exercise_bank_sha256", "review_session_id", "review_session_sha256", "review_status_sha256", "writer_packet_sha256", "writer_alias", "records"],
+  "properties": {
+    "artifact_kind": {"const": "answer-candidates"},
+    "schema_version": {"const": "1.0.0"},
+    "repository_revision": {"type": "string", "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"},
+    "generated_at": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"},
+    "snapshot_kind": {"enum": ["worktree", "git-tree"]},
+    "source_run_manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "chapter_id": {"type": "string", "pattern": "^CHAPTER-[0-9a-f]{64}$"},
+    "chapter_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "chapter_facts_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "exercise_bank_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "review_session_id": {"type": "string", "pattern": "^REVIEW-[0-9a-f]{64}$"},
+    "review_session_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "review_status_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "writer_packet_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "writer_alias": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"},
+    "records": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["question_id", "prompt_sha256", "worked_steps", "progressive_hints", "common_mistakes", "rubric", "acceptable_tradeoffs"],
+        "properties": {
+          "question_id": {"type": "string", "pattern": "^EX-CHAPTER-[0-9a-f]{64}-[a-z][a-z0-9-]{0,63}$"},
+          "prompt_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "worked_steps": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["kind", "text"], "properties": {"kind": {"enum": ["GENERAL", "CLAIM"]}, "text": {"type": "string", "minLength": 1}, "claim_id": {"type": "string", "pattern": "^CLAIM-[0-9a-f]{64}$"}}}},
+          "progressive_hints": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["level", "fragments"],
+              "properties": {
+                "level": {"type": "integer", "minimum": 1},
+                "fragments": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["kind", "text"], "properties": {"kind": {"enum": ["GENERAL", "CLAIM"]}, "text": {"type": "string", "minLength": 1}, "claim_id": {"type": "string", "pattern": "^CLAIM-[0-9a-f]{64}$"}}}}
+              }
+            }
+          },
+          "common_mistakes": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["kind", "text"], "properties": {"kind": {"enum": ["GENERAL", "CLAIM"]}, "text": {"type": "string", "minLength": 1}, "claim_id": {"type": "string", "pattern": "^CLAIM-[0-9a-f]{64}$"}}}},
+          "rubric": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["kind", "text"], "properties": {"kind": {"enum": ["GENERAL", "CLAIM"]}, "text": {"type": "string", "minLength": 1}, "claim_id": {"type": "string", "pattern": "^CLAIM-[0-9a-f]{64}$"}}}},
+          "acceptable_tradeoffs": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["kind", "text"], "properties": {"kind": {"enum": ["GENERAL", "CLAIM"]}, "text": {"type": "string", "minLength": 1}, "claim_id": {"type": "string", "pattern": "^CLAIM-[0-9a-f]{64}$"}}}}
+        }
+      }
+    }
+  }
+}

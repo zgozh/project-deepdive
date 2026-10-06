@@ -1,501 +1,99 @@
-# replicate-learning
+# Project DeepDive
 
-> 把**一个真实代码库**转化为**一套可追溯、可机检、可续传的工程学习资产**的 Agent Skill。
-> 默认交付**第一册项目源码与工程实现**；第二、三册需用户明确提出。每条源码结论都保留可复检的证据。
+Project DeepDive 帮助刚接触某个仓库的学习者、开发者和维护者，从业务背景走到架构、源码、运行边界与项目扩展。它把文件和调用关系连成可追溯的功能链，解释正常与失败路径，也支持互动学习、完整教材、AI 辅助实现和质量审查。有前端的项目会把浏览器页面、接口、后端和数据结果连接起来。
 
-> **Project DeepDive 演进状态：** 本仓库正在兼容升级。现有 replicate-learning 批次流水线继续可用；当前已落地第一组 Project DeepDive v1 版本化中间产物契约、标准库校验器与真实夹具，以及 Phase 2 的确定性仓库扫描与覆盖切片（Git tracked-file 清单 → 确定性文件类型 → surface/覆盖分类 → `project-index.json` + `coverage.json` → 语义/G01 审计）。AST、语言/框架 adapter、stack-profile、Knowledge Graph 构建和 Handbook compiler 仍属于后续 Phase，不在这里提前宣称可用。
+这个 GitHub 仓库只负责分发。安装后，指导、模板和 CLI 都从本地包中读取；目标项目源码由用户提供或按本包指南读取。工具结果只证明工具检查的范围，不能替代来源审查、教学审查或用户验收。
 
-[![判据版本](https://img.shields.io/badge/判据-v2.31-blue)](skills/replicate-learning/references/第一册质量细则.md)
-[![自检](https://img.shields.io/badge/selfcheck-122%20项%200%20失败-brightgreen)](skills/replicate-learning/scripts/skill_selfcheck.py)
-[![License](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
+## 安装
 
----
+仓库根本身就是 Skill 包根，里面直接有 `SKILL.md`。把仓库克隆到正在使用的宿主会读取的 Skill 目录；不要在目标目录下再套一层 `project-deepdive/`。如果目录已存在，先检查本地改动，再按你的宿主更新方式处理，不要直接覆盖未保存的内容。
 
-## 目录
+安装时保留完整目录：`SKILL.md`、`references/`、`prompts/`、`scripts/`、`schemas/`、`docs/`、`spec/` 和 `assets/`。这些是本包内材料与可选工具的入口；直接读源码学习不要求安装目标项目或语言解析依赖。
 
-- [一、30 秒理解它](#一30-秒理解它)
-- [二、它和「源码讲解 Prompt」有什么不同](#二它和源码讲解-prompt有什么不同)
-- [三、安装](#三安装)
-- [四、快速开始](#四快速开始)
-- [五、它到底产出什么](#五它到底产出什么)
-- [六、它怎么跑：七阶段 A~G](#六它怎么跑七阶段-ag)
-- [七、批次教材的十七节结构](#七批次教材的十七节结构)
-- [八、质量怎么保证：闸门 / SSOT / 血证 / 判据版本](#八质量怎么保证闸门--ssot--血证--判据版本)
-- [九、自带工具（28 个脚本）](#九自带工具28-个脚本)
-- [十、仓库结构](#十仓库结构)
-- [十一、证据等级](#十一证据等级)
-- [十二、硬约束与能力边界](#十二硬约束与能力边界)
-- [十三、从 V1 升级到 V2](#十三从-v1-升级到-v2)
-- [十四、常见问题](#十四常见问题)
-- [十五、相关文档](#十五相关文档)
-- [许可证](#许可证)
-
----
-
-## 一、30 秒理解它
-
-给 Agent 一个陌生项目，它会按下面这条链路推进，每一步都落盘、都可续传：
-
-```text
-陌生项目
-  └─ A 项目考古 ──────► 四份基础地图（全景 / 覆盖矩阵 / 概念词典 / 完整性地图）
-  └─ B 业务建模 ──────► 角色 + 端到端闭环 + 核心对象与约束
-  └─ C 架构推导 ──────► 运行时 / 依赖 / 请求 / 异步 / 数据 / 部署 六张图
-  └─ D 全文件教材化 ──► 第一册：逐批的完整源码讲解（17 节结构，★类全类贴码）
-  └─ E 底层穿透 ──────► 第二册：Prediction → Evidence → Experiment → Correction
-  └─ F Vibecoding ────► 第三册：Architecture Challenge / 重构 / 跨领域迁移
-  └─ G 验证与归档 ────► 构建·测试·启动证据、已知限制、索引与能力账本
-```
-
-默认只推进第一册；第二册实验与第三册架构挑战只有用户明确请求时才创建。执行实际 Issue 时，工程日志独立于被学习项目存放。
-
----
-
-## 二、它和「源码讲解 Prompt」有什么不同
-
-| 常见做法 | 本 Skill |
-|---|---|
-| 让 AI "讲一下这个项目"，产出一段说明 | 默认逐批产出第一册；其他册按用户明确请求启用 |
-| 讲解质量靠"模型自觉" | **113 项技能自检 + 批次闸门**复检，保留人工语义审读 |
-| 贴代码靠模型手打，行号经常是编的 | 代码块由 `inject_source.py` **从真实源码逐行注入**，行号零漂移；`④ 行号一致性`逐处核对 |
-| "已扫描"≈"已讲解"≈"已验证" | 三者严格区分，禁止互相冒充；没跑过的必须写"未实测" |
-| 讲完一个文件就算过 | `② ★反向完整度`：★ 类源文件的**每一条有效行**都要在讲解里出现 |
-| 讲清"这行为什么这么写"就算好 | 还必须写【怎么用】【上下游】【怎么接】——合上文件知道怎么调、怎么扩展 |
-| 规则改了没人知道 | 判据有**版本号**（当前 v2.31）+ **变更登记表** + **回归集比对**，改动必须走三件套 |
-
-设计上有一条主线：**判据只在它能识别的形态上生效，于是"改变形态就能绕过它"是最大的漏洞**。
-`spec/血证档案.md` 里的 H1~H29 就是这条主线上踩过的 29 次真实事故——每条判据背后都钉着一次"当时为什么会漏"。
-
----
-
-## 三、安装
-
-这是一个标准 Agent Skill 目录。把 `skills/replicate-learning/` 整个复制到所用 Agent 的 skills 目录即可：
+**Bash / POSIX shell：Codex skills 根目录**
 
 ```bash
-# WorkBuddy
-cp -r skills/replicate-learning ~/.workbuddy/skills/
-
-# Claude Code
-cp -r skills/replicate-learning ~/.claude/skills/
-
-# 其他 Agent（Codex 等）
-cp -r skills/replicate-learning ~/.agents/skills/
+mkdir -p "$HOME/.codex/skills"
+git clone https://github.com/zgozh/project-deepdive.git "$HOME/.codex/skills/project-deepdive"
 ```
 
-最小可用只需 `SKILL.md`，但**强烈建议整目录安装**——模型会按意图去读 `references/`、`spec/`、`scripts/`、`examples/`，缺文件会导致闸门跑不起来。
+**Windows PowerShell：Codex skills 根目录**
 
-安装后先自检（必须两条都 PASS 才进真实项目）：
-
-```bash
-cd ~/.workbuddy/skills/replicate-learning     # 换成你的实际安装路径
-python scripts/skill_selfcheck.py             # 期望：检查项 122，失败 0 → PASS ✅
-python scripts/v2_selfcheck.py                # 期望：V2 self-check: PASS (6 contract entries)
+```powershell
+$skillTarget = Join-Path $HOME '.codex/skills/project-deepdive'
+New-Item -ItemType Directory -Force -Path (Split-Path -Parent $skillTarget) | Out-Null
+git clone https://github.com/zgozh/project-deepdive.git $skillTarget
 ```
 
-> 单元测试（可选，17 个 `test_*.py` 共 320 项）：
-> `python -m unittest discover -s scripts -p "test_*.py" -t scripts`
->
-> Windows 提示：若把工具输出重定向到文件却看到 `UnicodeEncodeError`，说明用的是旧版本脚本——
-> 现行脚本入口已统一把 stdout/stderr 切到 UTF-8（`lecture_checks.configure_stdio()`）。
+如果当前宿主读取已有 `.agents/skills` 根目录，把目标分别改为 `$HOME/.agents/skills/project-deepdive` 或 `Join-Path $HOME '.agents/skills/project-deepdive'`。若宿主在启动时加载 Skills，安装后按宿主说明刷新或重新启动。
 
----
+默认使用 HTTPS 克隆，无需先配置 SSH key。如果本机已经配置 GitHub SSH key，可将命令中的远端改为 `git@github.com:zgozh/project-deepdive.git`。
 
-## 四、快速开始
-
-第一次使用，提供项目根目录和教材目录即可：
-
-1. **被学习项目根目录**（要学哪个项目）
-2. **教材目录**（默认写进目标项目的 `NOTES/`；不希望教材进版本库时可用项目外隔离副本）
-
-执行具体 Issue 时才需要工程日志目录；默认位于目标项目同级 `.replicate-learning-log/<项目名>/`。
-
-然后用自然语言触发：
+需要确认安装结构时，进入安装目录并运行：
 
 ```text
-学习这个项目：/path/to/my-project
-继续学习
-讲解第 3 批
-验证这个核心机制
-给这个项目出一个 Issue 并走完整工程流程
-验收当前学习结果
+python scripts/skill_selfcheck.py
+python scripts/v2_selfcheck.py
 ```
 
-首次运行会先建立四份基础地图，再进入第一批：
+这些自检检查包内契约，不读取目标项目，也不证明某个项目、章节或教学结果已通过。
 
-```text
-NOTES/
-  00-系统全景地图.md
-  项目文件覆盖矩阵.md
-  概念词典.md
-  阶段对照-完整性地图.md
-  教学讲解/00-总索引.md
-```
+## 从哪里开始
 
-> **续传原则**：进度**只认状态文件**，不认聊天记忆。上下文不足时先落盘再停，下次从"下一步入口"继续。
+先读[完整使用案例](docs/使用案例.md)，再按当前任务选自然语言入口。下面的名称说明用户意图，不是终端命令。
 
-**提速路径**（第二轮提速重构后的实际流水线，每一步都有工具、都先验后写）：
-
-```text
-batch_trace start                       计时开批（分步耗时：准备/写作/注入/修复/终检/验证/归档）
-→ batch_manifest prepare                本批源码 hash 清单（**一次把本批全部源文件传齐**）
-→ new_batch --plan --batch-json --skeleton  17 节骨架（与终稿分开两个文件）+ 稳定源码槽位 + batch.json/annotations.json
-→ batch_preflight                       注入前预检：★ 签名缺口 / 密度连段 / 坏注释键 / 片段参数 / **清单是否覆盖全部源文件**
-→ 模型写分片（parts/*.md）               解释、因果、回放、⑫
-→ batch_build                           骨架 + 分片 + 注释计划 → 重建终稿（四种"假重建"配置直接拒绝）
-→ gate_lecture --json --manifest        结构化结果（规则 ID / 状态 / 核验对象数 / 哈希）
-→ sync_gate_result --result-json --apply 验哈希后盖章 ⑯，盖章后复跑并记录最终哈希
-→ publish_batch --record                一份批次记录更新覆盖矩阵/总索引/阶段页/状态（冲突零写入）；已发布行回修走同一工具的 update_line op
-```
-
-第一次做全库扫描与四份基础地图；每批只读本批源码、调用方与相关测试。普通批次无需重读全部黄金样例
-（开批一次取最小样例包，闸门报哪条形态再按规则 ID 补读）或运行全库闸门；修改公共判据、批量收尾时再跑全库回归。
-Java 和 Python 执行同一事实核对标准，注释语法与检查档位按语言选择。
-
----
-
-## 五、它到底产出什么
-
-### 教材目录（默认只建立第一册）
-
-```text
-NOTES/
-  教学讲解/第一册-项目源码与工程实现/   ← 是什么、怎么工作
-  教学讲解/第二册-实验与机制验证/       ← 用户明确请求后建立
-  教学讲解/第三册-架构挑战与独立重构/   ← 用户明确请求后建立
-```
-
-**第一册 · 项目源码与工程实现**
-回答「这个项目是什么、解决什么业务问题、每个文件和关键代码如何工作」：系统全景与业务闭环、模块/进程/数据依赖、全文件覆盖矩阵、逐件源码讲解、调用链与失败边界、L0-L4 底层穿透。
-
-**第二册 · 实验与机制验证**
-回答「为什么它这样工作？改变或删除它之后会发生什么」，顺序强制为：
-
-```text
-Prediction（先预测）→ Evidence（查证据）→ Experiment（做实验）→ Correction（复盘修正）
-```
-
-不能把推断写成事实；跑不起来要写明命令、错误原文、排查范围和剩余风险。
-
-**第三册 · 架构挑战与独立重构**
-回答「如果不照抄原项目，我会怎样设计、替换和迁移这个系统」：Architecture Challenge、等价实现、Replacement / Modification / Reconstruction、Trade-off、跨领域 Transfer。
-
-### 独立工程日志（**不写进被学习项目**）
-
-```text
-.replicate-learning-log/<项目名>/
-  Issue/      问题原文与用户初始判断
-  Context/    交给 AI 的上下文包
-  Review/     diff 审查意见
-  Debug/      调试过程
-  Delivery/   交付与验收记录
-```
-
-记录 Issue 原文、AI 调查、上下文包、代码 diff、用户审查意见、测试与调试、最终状态、AI 失误样本、能力账本证据。
-
-### 工程任务八步协议（Vibe Coding）
-
-```text
-Understand → Investigate → Predict → Plan → Delegate → Review → Test → Accept
-```
-
-- 用户**不需要手写核心生产代码**，但要参与关键预测、架构判断、diff 审查和最终验收；
-- 最终状态**只能由用户确认**，AI 不得自行宣布完成：
-  `Accept` / `Accept with known risk` / `Reject and revise` / `Blocked with evidence`。
-
----
-
-## 六、它怎么跑：七阶段 A~G
-
-| 阶段 | 一句话 | 产出 |
-|---|---|---|
-| **A 项目考古** | 扫全仓（含构建/配置/测试/脚本/部署/前端，不只业务源码），建四份基础地图 | 全景地图 / 覆盖矩阵 / 概念词典 / 完整性地图 |
-| **B 业务建模** | 从角色、场景、规则、状态、异常、审计重建业务；不许拿"用了某框架"当业务解释 | 角色 + 端到端闭环 + 核心对象与约束 |
-| **C 架构推导** | 运行时/依赖/请求/异步/数据/部署六张图，每个重要选择给替代方案与代价 | 六张图 + 选择理由（全部回链真实类/方法/表） |
-| **D 全文件教材化** | 按业务闭环分批（**不按目录**）；每个文件有唯一覆盖状态，排除也要有理由 | 批次讲解 + 覆盖矩阵更新 |
-| **E 底层穿透** | 关键机制至少剥一层：源码证据 / 框架替你做了什么 / 不用的等价实现 / 失败时间线 | L0-L4 穿透卡 |
-| **F Vibecoding** | 展示"如何让 AI 正确完成"：上下文、拆批、审 diff、反馈闭环、识别幻觉 | ⑫ 八条 + 八段提示词 |
-| **G 验证与归档** | 构建/测试/启动/最小链路验证并记录命令与输出；**没实际运行不得声称已验证** | 验证证据 + 已知限制 + 索引 |
-
-**底层穿透的层级**（防止只学到"调用姿势"，换框架即归零）：
-
-| 层级 | 含义 |
+| 入口 | 适合的请求 |
 |---|---|
-| `L0 源码证据` | 真实源码、依赖源码、字节码或官方实现位置 |
-| `L1 机制拆解` | 框架替项目自动完成的具体步骤 |
-| `L2 等价实现` | 不依赖当前框架的可读示范，并写明省略了哪些生产边界 |
-| `L3 设计取舍` | 替代方案、代价、具体失败时间线 |
-| `L4 故障实证` | 实际破坏、日志、堆栈或数据变化；无法运行时必须写"未实测"并退回 L3 |
+| `learn-project` | 从业务背景和主要架构开始认识项目。 |
+| `project-scan` | 盘点文件、分类范围或查看覆盖缺口。 |
+| `project-map` | 梳理模块关系、业务链和学习先修。 |
+| `project-book` | 写或修订一章完整的读者教材。 |
+| `project-study` | 互动学习一个文件、机制、功能或失败路径。 |
+| `project-interview` | 用项目事实练习问题、回答与追问。 |
+| `project-extend` | 设计或实现一个有界的项目改进。 |
+| `project-vibecode` | 学习从需求、计划、切片到验证和审查的 AI 开发闭环。 |
+| `project-audit` | 检查证据、教学范围、质量门禁或验收状态。 |
+| `project-update` | 根据真实 Git diff 更新受影响的知识与材料。 |
 
-**阶段 G 的完成条件**：① 纳入范围文件都有讲解链接或排除理由；② 每个核心闭环有端到端链路；③ 每个核心模块有架构位置、依赖方向、数据流；④ 关键机制有源码证据或推断标记；⑤ 教材落盘并有总索引；⑥ 验证命令与结果可追溯。
-构建/运行失败时**照样产出教材**，但必须写入失败命令、完整关键错误、失败层级、已排查范围、未解决原因与风险。
+例如可以先说：“请从零带我理解这个仓库。先解释它解决什么业务问题，再给我一张主要模块图；然后选一个完整功能链，讲清正常和失败路径，最后给我练习和完整答案。”如果已经有项目地图或学习断点，要求 Skill 先核对并接着已有进度。
 
----
+续接已有工作时可以说：“请先读我提供的最近项目地图、学习材料和 checkpoint，核对它们是否仍适用于当前源码，再从上次停下的位置继续；保留未知项，不要假设前置材料已通过。”
 
-## 七、批次教材的十七节结构
+## 教学与开发方法
 
-每批教材统一为 **17 节（①~⑯ + 索引节）**。节序的权威来源是 `references/批次讲解全文模板.md`
-（由 `new_batch.py` 抽取骨架），不是任何历史批次。
+传统 17 节教学职责是一套按需采用的深度清单：系统全景、业务闭环、文件职责、概念前置、批前清单、逐件源码、调用链与状态、底层机制、工程与面试常识、失败反例、测试视角、VibeCoding、验证与限制、完整复习答案、先修与未覆盖项、教材自检、导航索引。新主题按读者和业务流程组织，不要求每种请求套用相同标题；完整职责见[17 节讲解模板](references/批次讲解全文模板.md)。
 
-| 节 | 内容 |
-|---|---|
-| ① | 在系统全景中的位置（盒状全景图 + 跨批关系） |
-| ② | 业务场景与端到端闭环（流水线图 + 分支流预告） |
-| ③ | 文件清单与一句话职责（源文件 / 配置资源 / 测试 三张表） |
-| ④ | 新概念白话解释（宽表全量 + 核心概念深潜） |
-| ⑤ | 批前两个内部清单（外部调用穿透清单 + 九列讲解骨架清单） |
-| ⑥ | 逐件讲解（完整代码 + 逐行要点表 + 边界副作用 +【怎么用】/【上下游】/【怎么接】） |
-| ⑦ | 调用链、数据流、状态变化、边界与接入路径 |
-| ⑧ | L0-L4 底层穿透卡 |
-| ⑨ | 八股讲解（本批涉及的面试考点：考点 / 一句话定义 / 为什么考 / 本批落点 + 速查表） |
-| ⑩ | 失败反例 |
-| ⑪ | 测试视角 |
-| ⑫ | Vibecoding 视角（八条 + 八段提示词） |
-| ⑬ | 验证证据与已知限制 |
-| ⑭ | 复习问答（题后紧跟答案） |
-| ⑮ | 前置知识 / 后续依赖 / 未覆盖项 / 下一批入口 |
-| ⑯ | 教材质量自检（六项，须引用 §6.4 条目号 + 判据版本） |
-| 索引 | 本批回链与导航 |
+AI 协作可按 `BASELINE → DISCOVER → SPEC → PLAN → SLICE → BUILD → VERIFY → REVIEW → REPAIR → FULL-CHAIN → RETRO` 推进：先确认起点和证据，再计划、实现、验证与复盘。根据当前任务选择阶段，不把阶段名当作 CLI 参数，也不把模型输出或静态检查当成真实运行证据。
 
-三条最容易踩的硬要求：
+旧 V2 工作流中的六类说法继续映射到这些入口；继续学习时先检查现有 checkpoint。映射和显式续写旧 17 节批次的条件见[兼容工作流](references/legacy-and-advanced-workflows.md)。自然语言模式、CLI 和旧批次名称是不同层次，不能把意图标签当作脚本参数。
 
-- **★ 核心类禁止摘录式贴码**——必须全类注入并**逐行比对**（源文件每条有效行都在讲解里，覆盖 ≥ 99.5%）。用"取 `:L` 最大值"的粗检查会漏报"整节缺失"。
-- **⑤ 用法与接入的位置固定在件末**：排在「逐行要点表」之后、件内 `---` 之前。
-- **⑫ 禁止回顾语**——必须以"你现在接到这个需求、该能力尚不存在、从零构建"为起点；"回顾性重构""本批已实现"这类表述直接 FAIL。
+## 工具与依赖
 
----
+阅读本包的 Markdown、互动讲解或按用户给出的源码直接做教学，不需要 Python、目标项目依赖或语言解析器。要运行包内自检和相应 CLI 时需要 Python；Phase 3A 静态分析要求 Python 3.11 或更高版本。Java 分析需要本机 JDK。前端快照解析器及其可选安装方式见[基础事实指南](references/project-foundation-guide.md)和[Phase 3 CLI 细节](references/phase3-static-analysis-cli-details.md)。这些解析器不是直接源码学习的前置条件；不满足某个 adapter 的依赖时，应诚实保留未知或部分结果。
 
-## 八、质量怎么保证：闸门 / SSOT / 血证 / 判据版本
+默认不安装目标项目依赖、不执行目标代码、不启动服务，也不保证静态工具能完整理解任意项目。脚本的输入、版本和限制以对应指南及 `--help` 为准；需要人工核对的事实仍由人审查。
 
-### 闸门七项（每批落盘后、commit 前必跑）
+项目地图、学习材料、审查报告和代码改动都写入用户指定的目标项目或输出目录；安装目录只提供入口、文档和工具，不是默认生成位置。具体写入仍以本次请求和[安装与执行边界](docs/安装与执行边界.md)为准。
 
-```bash
-python scripts/gate_lecture.py <批次.md> --src <源码根> --json <结果.json>   # 结构化结果（推荐）
-```
+更多入口见[参考目录](references/README.md)；包内安装、执行和写入边界见[安装与执行边界](docs/安装与执行边界.md)。
 
-| 项 | 查什么 |
-|---|---|
-| ⓪ 结构 | 节数 = 17、一级节标题形态、围栏偶数且配对、占位符 = 0、⑫ 八条 = 8 |
-| ① 正向保真 | 每个代码块逐行都能在源码或本批快照里找到（防止编代码） |
-| ② ★反向完整 | ★ 类源文件的每一条有效行都要出现在讲解里（防止"讲过"= 只讲了一半） |
-| ③ 注释密度 | 连续 ≥ 8 行无注释 = 不合格；条数 ≥ 关键行 ÷ 12 |
-| ④ 行号一致性 | `// :Lnn` 必须就是该内容真正所在的行 |
-| ⑤ 用法与接入 | 每件必须写【怎么用】/【上下游】/（抽象件）【怎么接】 |
-| ⑥ 散文符号真实性 | 正文里的 `Xxx.java:NN`、件标题声明的 `.java` 等必须真实存在 |
+## 包内结构与贡献
 
-退出码非 0 即不过关，首行打印判据版本。**任何一项不过关当场修、修完复跑，全过才允许 commit。**
-`--json` 出的是**结构化结果**：每条检查带稳定规则 ID（挂 `spec/00-质量契约.json` 条款）、五个互斥状态
-（`PASS/FAIL/REPORT/NOT_CHECKED/ERROR`）、**核验对象数**与定位；**核验对象为 0 记 `NOT_CHECKED`，不算通过**。
-⑯ 段由它渲染：`sync_gate_result.py --result-json <结果.json> --apply`（先验契约版本与正文/清单哈希，
-盖章后自动复跑一次完整闸门并单独记录最终哈希）。
-
-### 开批之前先预检（省掉"注入后才发现"的往返）
-
-```bash
-python scripts/batch_preflight.py --src <源码根> --plan <注释计划.json> [--manifest <清单.json>] [--lecture <批次.md>]
-```
-它 `import` 闸门本身，用同一套函数先算一遍：★ 签名缺口几个、哪些块有多长无注释连段、该补哪几行，
-外加注释键是否为真实行号、是否落在 Python 多行字符串/反斜杠续行这类"注了也不生效"的位置。
-**预检说什么，终检就说什么**——不再靠"跑闸门试错"。
-
-### 四层治理
-
-| 层 | 文件 | 作用 |
-|---|---|---|
-| **单一真源** | `spec/00-质量契约.json` | 每条要求 = id / 层级 / 判据原文 / gate 锚点 / SKILL 锚点 / 模板锚点 / 血证编号 |
-| **血证档案** | `spec/血证档案.md` | H1~H29：每条规则背后的真实事故。**想放宽判据前必读** |
-| **判据版本** | `references/第一册质量细则.md` §6.6 | 当前 **v2.31**；任何判据变更必须走三件套 |
-| **技能自检** | `scripts/skill_selfcheck.py` | 122 项，对账 SSOT ↔ 质量细则 ↔ 模板 ↔ gate，防规则丢失 |
-
-**判据变更三件套**（缺一即视为未完成）：
-
-1. 递增 `GATE_VERSION`，并在 §6.6 变更登记表加一行（版本 / 日期 / 改了什么 / 影响面 / 存量工单）；
-2. 跑回归集，`--baseline` 逐字段比对——**"不该变的判定必须一字不变"**；
-3. 公告与工单：把"新增/收紧的项 + 会变红的批次清单"写进宿主项目状态页。
-
-**层级说明**：L1 = 机械门（闸门精确判定，所有批次必须过）；L2 = 内容契约（闸门查"有没有"，对不对要人读）；L3 = 教学增益（不假装机械可验，由 ⑯ 自检 + 抽样人审）。
-⚠️ 分的是"**谁来负责判定**"，**不是"哪些件可以少讲**"——本 Skill 不做分级降档，控成本请调**批次粒度**。
-
----
-
-## 九、自带工具（28 个脚本）
-
-| 脚本 | 干什么 |
-|---|---|
-| `gate_lecture.py` | 闸门：一次跑完七项判定，输出判据版本与缺口；`--json` 出**结构化结果**（稳定规则 ID / 状态 / 核验对象数 / 哈希）；`--manifest` 显式指定本批源码清单（供盖章核对） |
-| `gate_all.py` | 全库记分卡 + 判据回归比对（`--baseline` 逐字段比对，变化即 FAIL） |
-| `skill_selfcheck.py` | 技能文档一致性自检（SSOT ↔ 质量细则 ↔ 模板 ↔ gate 对账，122 项） |
-| `v2_selfcheck.py` | V2 入口与产物契约检查 |
-| `batch_trace.py` | 批次分步计时器（JSONL）：把"一小时到底花在哪"拆成准备/写作/注入/修复/终检/验证/归档 |
-| `batch_preflight.py` | **开批预检**：注入前就用闸门同口径报出 ★ 签名缺口、密度连段与可补注行、坏注释键；并要求清单**覆盖注释计划里的全部源文件**（缺件 FAIL） |
-| `new_batch.py` | 新批次脚手架：从模板生成 17 节**骨架**（`--skeleton`，与终稿 `--out` 分开）；`--plan` 时逐件写**稳定源码槽位**并派生唯一一份可编辑 `annotations.json` 与 `batch.json` |
-| `batch_build.py` | 从「骨架 + 分片 + 注释计划」**重建终稿**（`--dry-run` 预览、`--check` 比对、失败不写盘）；构建前 fail-closed 拦住骨架=终稿 / annotations 指回原始计划 / 分片目录为空 / 某节仍是模板占位原文（缺分片） |
-| `publish_batch.py` | 用**一份批次记录**更新覆盖矩阵/总索引/阶段页/状态：先验后写、冲突零写入、幂等、`--git-add` 只加点名文件；已发布**行**的回修走第五种 op `update_line`（anchor 回修后仍唯一命中 + expect 整行原文 + 按行现状判幂等） |
-| `study_scope.py` | 默认第一册与显式扩展册范围解析、旧状态迁移 |
-| `batch_manifest.py` | 本批 Java/Python 等源文件 hash 清单与变更检查 |
-| `assemble_batch.py` | 把 17 节骨架和完整章节片段确定性组装，局部返工只换片段 |
-| `inject_source.py` | **源码块注入**：优先按槽位（块身份 = 槽位 ID + 源路径 + sha256）注入，旧 `anchor/contains` 兼容并告警 |
-| `lecture_checks.py` | 检查结果的统一 schema 与规则登记表（状态词表 / SSOT 条款映射 / 哈希绑定校验） |
-| `safe_edit.py` | 局部安全编辑工具：围栏护栏 + 整节重写，跨围栏替换一律拒绝 |
-| `callsite.py` | 调用点提取：输出「声明 / 使用调用点 / 仅提及」三段（写【怎么用】的证据来源） |
-| `fix_lineno.py` | 行号标注修正：重写真行号，并把作废的 `// :N` 升级为 `:Lnn` |
-| `annotate_gaps.py` | ③ 注释缺口定位器：算出满足判据所需的最小标注点集合 |
-| `sync_gate_result.py` | 把闸门结果写进 ⑯ 段：`--result-json` 从结构化结果渲染，验哈希后才盖章，盖章后复跑并记最终哈希 |
-| `fix_circled_sections.py` | 修复一级节标题带圈数字丢失（丢码会让整节检查静默失效） |
-| `polish_fix.py` | ⑥/⑫ 排版整形（断段、列表化、标记段空行） |
-| `artifact_contract.py` | Project DeepDive v1 中间产物的 schema 注册、严格校验与规范化 JSON 序列化（仅标准库） |
-| `validate_artifact.py` | 命令行校验一个或多个 v1 产物；失败返回非零并报告具体 JSON 路径 |
-| `repository_scan.py` | Phase 2 确定性仓库清单：NUL 分隔的 Git 路径枚举、worktree/git-tree 两种快照、流式哈希、strict exact-path override 装载、两个 v1.1 产物的组装与内存内校验 |
-| `file_classification.py` | Phase 2 纯函数文件类型判定（不查宿主 MIME 注册表）与有序 surface 规则；输出固定的 rule ID 词表，从不输出 `COVERED` |
-| `coverage_audit.py` | Phase 2 可复用 G01 语义审计：计数、revision/时间戳一致、路径集合相等、v1.1 字段、规则 ID、secondary surface 顺序、reason、`UNKNOWN` 计数与快照存在/大小/哈希 |
-| `scan_repository.py` | Phase 2 扫描 CLI：先构建/规范化/审计两个产物，再经临时文件替换发布；失败不覆盖既有产物 |
-| `validate_coverage.py` | Phase 2 审计 CLI：输出 status、计数与逐条 violation，失败返回非零 |
-
-> 工具随技能发布：规程里写着"必须做"的步骤，其执行工具必须在 `scripts/` 下、被文档引用、被自检覆盖。留在会话临时目录里的脚本等于没有。
-
-### Project DeepDive v1 产物校验
-
-七类首版产物位于 `skills/replicate-learning/schemas/v1/`：project index、stack profile、evidence、coverage、knowledge graph、curriculum 和 quality report。校验单个产物：
-
-```bash
-python scripts/validate_artifact.py tests/fixtures/artifacts/v1/project-index.json
-```
-
-成功会打印产物 kind/version 并返回 0；缺字段、类型错误、未知 kind 或不支持的主版本会返回 1，并定位到 `$` 开头的 JSON 路径。`tests/fixtures/artifacts/v1/` 的数据来自仓库内 `py_mini` 真实夹具，同时明确把尚未执行的运行时/后续质量门标成 `NOT_RUN` 或 `PARTIAL`。
-
-### Phase 2 仓库扫描与覆盖审计
-
-Phase 2 只对 `project-index` 与 `coverage` 输出 `1.1.0`；旧 `1.0.0` 产物继续有效，其余五类产物仍只接受 `1.0.0`。最小扫描与严格审计：
-
-```bash
-# 扫描：Git tracked 文件 → 确定性类型/surface 分类 → 两个产物
-python scripts/scan_repository.py --root <git 仓库或子目录> --out <产物目录> \
-  --snapshot worktree --generated-at 2026-09-22T00:00:00Z
-
-# 加上 --overrides 消除含糊文件，并要求零 UNKNOWN
-python scripts/scan_repository.py --root <git 仓库或子目录> --out <产物目录> \
-  --overrides <overrides.json> --require-complete
-
-# 对已有产物做语义审计
-python scripts/validate_coverage.py --project-index <产物目录>/project-index.json \
-  --coverage <产物目录>/coverage.json --root <被分析根> --require-complete
-```
-
-退出码 `0` = 成功（未加 `--require-complete` 时允许 `PARTIAL`，即仍有诚实的 `UNKNOWN`）；`1` = 产物/审计/完整性失败；`2` = 用法或运行错误（非 Git 根、缺 `HEAD`、override 非法等）。扫描失败不会覆盖既有有效产物。规则优先级、稳定 rule ID、快照语义、override JSON 形状与 `CLASSIFIED`/`COVERED` 的区别见 `skills/replicate-learning/references/coverage-policy.md`。
-
----
-
-## 十、仓库结构
+仓库根是 Skill 安装根：
 
 ```text
-replicate-learning/
-├── README.md                      本文件
-├── LICENSE                        Apache-2.0
-├── 总方案.md                       V2 总体方案
-├── docs/                          方案与验收过程文档
-├── gate_all.json                  全库闸门记分卡样例
-└── skills/replicate-learning/     ★ 要安装的就是这个目录
-    ├── SKILL.md                   入口 + 意图路由（58 行：可执行入口，长表与细则按需读）
-    ├── docs/              (3)     安装与执行边界、通用学习方法、V2 试运行手册（archive/）
-    ├── examples/          (2)     黄金样例（Java / Python）
-    ├── references/       (30)     执行协议 + 全部讲解与工程模板 + 黄金样例节选
-    ├── schemas/           (8)     Project DeepDive v1 七类产物 schema + 版本说明
-    ├── scripts/          (28)     上表 28 个工具（另有 17 个 test_*.py 行为自测）
-    ├── spec/              (7)     质量契约 SSOT、血证档案、操作手册、阶段工作流
-    └── tests/fixtures/            回归夹具（batch48 真实批次 + py_mini 合成边界用例 + repository_scanner 三类 Phase 2 夹具模板）
+SKILL.md       宿主读取的入口与十种模式路由
+README.md      安装、首次使用与能力边界
+CONTRIBUTING.md 反馈和改进方式
+LICENSE        上游 Apache License 2.0
+docs/          完整使用案例、方法和安装边界
+references/    主题指南、质量规则、模板与兼容材料
+prompts/       分主题的作者和教练提示
+scripts/       按需运行的本地工具
+schemas/       版本化数据合同
+spec/          旧流程合同与 CLI 手册
+examples/      教学样例
+tests/         Skill 工具的定向回归测试
 ```
 
-入口是 `skills/replicate-learning/SKILL.md`。触发后先按意图读 `references/第一册执行协议.md`（扩展册看 `V2执行协议.md`），再按任务类型读对应模板——**不要求把全部文档一次性装入上下文**。
-
----
-
-## 十一、证据等级
-
-每个重要结论必须标注一种证据：
-
-| 等级 | 含义 |
-|---|---|
-| `事实-源码` | 可以回链到真实文件、类、方法或行号 |
-| `事实-实测` | 由命令、测试、日志、堆栈或实验得到 |
-| `事实-历史` | 由 Git 提交、差异或 blame 得到 |
-| `外部事实` | 来自官方文档、依赖源码或协议规范 |
-| `推断` | 根据现象和代码推导，尚未直接验证 |
-
-性能、并发、安全、故障和生产行为这类结论，**不允许用模型记忆代替证据**。
-
----
-
-## 十二、硬约束与能力边界
-
-**硬约束**（详见 `SKILL.md` 与 `references/第一册质量细则.md`）：
-
-1. 教材写入被学习项目 `NOTES/`；工程日志独立保存，不污染目标项目。
-2. 默认只生成第一册；第二、三册必须由用户明确提出。未请求的册不建目录、不记欠账。
-3. 关键机制先有预测或证据，再实现或实验；不得把推断写成事实。
-4. AI 完成检索、写作、脚本与代码劳动；用户只参与关键预测、设计、审查和验收。
-5. **AI 不得自行宣布交付完成**，最终状态只能由用户确认。
-6. 每次结束前必须落盘状态、产物、失败证据和下一步入口；上下文不足时也先落盘。
-
-**当前不承诺**：自动评分用户回答、自动生成复杂 Benchmark、全自动故障注入、多 Agent 自动协作、对任意项目一次性生成全部教材、AI 不经人工审查即可保证代码正确。
-
-**首轮试运行的最小验收集**：四份基础地图 + 第一册一个源码批次 + 源码与测试证据 + 批次闸门 + 人工语义审读。实验、架构挑战和 Issue 闭环按明确任务分别验收。
-
----
-
-## 十三、从 V1 升级到 V2
-
-V1（判据停在 2.14）专注"第一册源码讲解"，V2 在此之上补了三件事：
-
-| 维度 | V1 | V2 |
-|---|---|---|
-| 教材 | 第一册 | 默认第一册；第二、三册按用户明确请求启用 |
-| 工程训练 | 无独立载体 | **独立工程日志** + Issue 八步协议 + 能力账本 |
-| 受众 | 讲给"读者" | 同时讲给"要动手改它的人"（⑫ Vibecoding 视角 +【怎么用】/【怎么接】） |
-| 判据 | 2.14 | **2.31**（含教材类/记录类文件形态判定、注释标记按语言取前缀、件段边界只认正文、⑨ 八股讲解等） |
-
-升级方式：**删除旧目录，整个替换为 `skills/replicate-learning/`**。旧版产物无需迁移，但旧批次按新判据跑闸门时，收紧项对未声明版本的存量批次默认走**报告档**（不追溯），不生效追溯红。
-
----
-
-## 十四、常见问题
-
-**Q：一定要 Java 项目吗？**
-不。判据 2.22 起注释标记按语言取前缀（`//` / `#` / `--`），已在 Python + TypeScript 项目上首跑验证。但**每上一次新语言/新形态都要回头看判据是否还认得它**——H27 就是这么来的。
-
-**Q：教材会污染我的项目仓库吗？**
-教材默认就地写入目标项目 `NOTES/`（推荐，教材随项目走）。若项目的 `.gitignore` 会忽略它或你不希望入库，可改用项目外隔离副本。开工时 Skill 会检查并给选项。
-
-**Q：AI 说"这一批已完成"，我可以信吗？**
-以闸门退出码为准，不以模型的自我陈述为准。跑 `gate_lecture.py`，退出码 0 且首行判据版本符合预期才算过；最终交付永远由你 Accept。
-
-**Q：判据一改，我的旧批次全变红了怎么办？**
-这正是 §6.6 要防的。新判据对未声明版本的存量批次默认走报告档；任何变更必须跑回归集并逐字段比对，"不该变的判定必须一字不变"。
-
-**Q：改了 Skill 之后要做什么？**
-① 先改 `spec/00-质量契约.json`；② 同步 SKILL.md / 模板 / gate 三处投影；③ 跑 `skill_selfcheck.py` 全绿；④ 判据有变按三件套登记；⑤ 同步所有安装副本。
-
----
-
-## 十五、相关文档
-
-**仓库级**
-
-- [总方案](总方案.md) — V2 总体设计
-- [实施计划](docs/实施计划.md)
-
-**技能级**（`skills/replicate-learning/`）
-
-- [SKILL.md](skills/replicate-learning/SKILL.md) — 入口、意图路由、硬约束
-- [安装与执行边界](skills/replicate-learning/docs/安装与执行边界.md) — 能保证什么 / 不能保证什么
-- [V2 执行协议](skills/replicate-learning/references/V2执行协议.md) — 每次开工/续传先读
-- [操作手册：闸门与工具](skills/replicate-learning/spec/操作手册-闸门与工具.md) — 每天干活时读
-- [血证档案](skills/replicate-learning/spec/血证档案.md) — H1~H29，想放宽判据前必读
-- [质量契约 SSOT](skills/replicate-learning/spec/00-质量契约.json) — 单一真源
-- [七阶段工作流](skills/replicate-learning/spec/阶段工作流.md)
-- [V2 试运行手册](skills/replicate-learning/docs/V2试运行手册.md)
-
----
-
-## 许可证
-
-[Apache License 2.0](LICENSE)
+可在[贡献指南](CONTRIBUTING.md)报告教材可读性或工具问题，并查阅[许可证](LICENSE)。包内链接优先；Skill 不要求联网获取运行资料。

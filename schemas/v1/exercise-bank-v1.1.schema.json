@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://project-deepdive.dev/schemas/v1/exercise-bank-v1.1.schema.json",
+  "title": "Project DeepDive Phase 6D1 Enriched Exercise Bank",
+  "description": "Opt-in answer-authored exercise bank preserving the Phase 6A questions and carrying deterministic source and review bindings.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["artifact_kind", "schema_version", "repository_revision", "generated_at", "snapshot_kind", "source_run_manifest_sha256", "chapter_id", "curriculum_unit_id", "chapter_sha256", "chapter_facts_sha256", "exercise_bank_sha256", "review_session_id", "review_session_sha256", "review_status_sha256", "writer_packet_sha256", "writer_alias", "answer_book_status", "overall_status", "source_status", "unknown_files", "integrity_checks", "answer_evidence_review", "answer_beginner_review", "input_digests", "claim_evidence_catalog", "records"],
+  "properties": {
+    "artifact_kind": {"const": "exercise-bank"},
+    "schema_version": {"const": "1.1.0"},
+    "repository_revision": {"type": "string", "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"},
+    "generated_at": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"},
+    "snapshot_kind": {"enum": ["worktree", "git-tree"]},
+    "source_run_manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "chapter_id": {"type": "string", "pattern": "^CHAPTER-[0-9a-f]{64}$"},
+    "curriculum_unit_id": {"type": "string", "pattern": "^CURRICULUM-UNIT-[0-9a-f]{64}$"},
+    "chapter_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "chapter_facts_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "exercise_bank_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "review_session_id": {"type": "string", "pattern": "^REVIEW-[0-9a-f]{64}$"},
+    "review_session_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "review_status_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "writer_packet_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "writer_alias": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"},
+    "answer_book_status": {"const": "DRAFT"},
+    "overall_status": {"const": "PARTIAL"},
+    "source_status": {"enum": ["PASS", "PARTIAL"]},
+    "unknown_files": {"type": "integer", "minimum": 0},
+    "integrity_checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["input_bindings", "question_identity", "answer_shape", "claim_reference_integrity"],
+      "properties": {
+        "input_bindings": {"const": "PASS"},
+        "question_identity": {"const": "PASS"},
+        "answer_shape": {"const": "PASS"},
+        "claim_reference_integrity": {"const": "PASS"}
+      }
+    },
+    "answer_evidence_review": {"const": "NOT_RUN"},
+    "answer_beginner_review": {"const": "NOT_RUN"},
+    "input_digests": {
+      "type": "array",
+      "minItems": 7,
+      "maxItems": 7,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["role", "sha256"],
+        "properties": {
+          "role": {"enum": ["chapter", "chapter_facts", "exercise_bank", "review_session", "review_status", "writer_packet", "answer_candidates"]},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        }
+      }
+    },
+    "claim_evidence_catalog": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["claim_id", "evidence"],
+        "properties": {
+          "claim_id": {"type": "string", "pattern": "^CLAIM-[0-9a-f]{64}$"},
+          "evidence": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id", "level", "locator"],
+              "properties": {
+                "id": {"type": "string", "pattern": "^EVID-[A-Za-z0-9._:-]+$"},
+                "level": {"enum": ["E0", "E1", "E2", "E3", "E4", "E5"]},
+                "locator": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "path": {"type": "string", "minLength": 1},
+                    "symbol": {"type": "string", "minLength": 1},
+                    "line_start": {"type": "integer", "minimum": 1},
+                    "line_end": {"type": "integer", "minimum": 1}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "records": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "objective_key", "type", "prompt", "prompt_sha256", "prerequisite_concept_keys", "claim_ids", "evidence_ids", "source_refs", "answer_status", "worked_steps", "progressive_hints", "common_mistakes", "rubric", "acceptable_tradeoffs"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^EX-CHAPTER-[0-9a-f]{64}-[a-z][a-z0-9-]{0,63}$"},
+          "objective_key": {"type": "string", "pattern": "^[a-z][a-z0-9-]{0,63}$"},
+          "type": {"enum": ["recall", "trace_predict"]},
+          "prompt": {"type": "string", "minLength": 1},
+          "prompt_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "prerequisite_concept_keys": {"type": "array", "items": {"type": "string", "pattern": "^[a-z][a-z0-9._-]{0,63}$"}},
+          "claim_ids": {"type": "array", "items": {"type": "string", "pattern": "^CLAIM-[0-9a-f]{64}$"}},
+          "evidence_ids": {"type": "array", "items": {"type": "string", "pattern": "^EVID-[A-Za-z0-9._:-]+$"}},
+          "source_refs": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["graph_node_ids", "graph_edge_ids", "evidence_ids", "file_paths"],
+            "properties": {
+              "graph_node_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
+              "graph_edge_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
+              "evidence_ids": {"type": "array", "items": {"type": "string", "pattern": "^EVID-[A-Za-z0-9._:-]+$"}},
+              "file_paths": {"type": "array", "items": {"type": "string", "minLength": 1}}
+            }
+          },
+          "answer_status": {"const": "AUTHORED"},
+          "worked_steps": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["kind", "text"], "properties": {"kind": {"enum": ["GENERAL", "CLAIM"]}, "text": {"type": "string", "minLength": 1}, "claim_id": {"type": "string", "pattern": "^CLAIM-[0-9a-f]{64}$"}}}},
+          "progressive_hints": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["level", "fragments"],
+              "properties": {
+                "level": {"type": "integer", "minimum": 1},
+                "fragments": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["kind", "text"], "properties": {"kind": {"enum": ["GENERAL", "CLAIM"]}, "text": {"type": "string", "minLength": 1}, "claim_id": {"type": "string", "pattern": "^CLAIM-[0-9a-f]{64}$"}}}}
+              }
+            }
+          },
+          "common_mistakes": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["kind", "text"], "properties": {"kind": {"enum": ["GENERAL", "CLAIM"]}, "text": {"type": "string", "minLength": 1}, "claim_id": {"type": "string", "pattern": "^CLAIM-[0-9a-f]{64}$"}}}},
+          "rubric": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["kind", "text"], "properties": {"kind": {"enum": ["GENERAL", "CLAIM"]}, "text": {"type": "string", "minLength": 1}, "claim_id": {"type": "string", "pattern": "^CLAIM-[0-9a-f]{64}$"}}}},
+          "acceptable_tradeoffs": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["kind", "text"], "properties": {"kind": {"enum": ["GENERAL", "CLAIM"]}, "text": {"type": "string", "minLength": 1}, "claim_id": {"type": "string", "pattern": "^CLAIM-[0-9a-f]{64}$"}}}}
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://project-deepdive.dev/schemas/v1/general-factuality-review.schema.json",
+  "title": "Phase 6D2A2 General Factuality Review",
+  "description": "Reviewer-declared general-fact judgments and non-copying findings for every authored text occurrence.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["artifact_kind", "schema_version", "generated_at", "review_session_id", "review_session_sha256", "review_round", "repository_revision", "snapshot_kind", "source_run_manifest_sha256", "selected_unit_id", "selected_unit_origin", "selected_unit_scope", "facts_sha256", "candidate_sha256", "unit_artifact_sha256", "lesson_markdown_sha256", "answer_book_markdown_sha256", "writer_alias", "reviewer_alias", "reviewer_session_id", "fresh_context_isolated", "source_reference_inspection", "packet_sha256", "results"],
+  "properties": {
+    "artifact_kind": {"const": "general-factuality-review"},
+    "schema_version": {"const": "1.0.0"},
+    "generated_at": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"},
+    "review_session_id": {"type": "string", "pattern": "^GENERAL-REVIEW-[0-9a-f]{64}$"},
+    "review_session_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "review_round": {"const": 0},
+    "repository_revision": {"type": "string", "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"},
+    "snapshot_kind": {"enum": ["worktree", "git-tree"]},
+    "source_run_manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "selected_unit_id": {"type": "string", "pattern": "^CURRICULUM-(UNIT|PRIMER)-[0-9a-f]{64}$"},
+    "selected_unit_origin": {"enum": ["CANDIDATE", "PREREQUISITE_PRIMER"]},
+    "selected_unit_scope": {"enum": ["GENERAL_LEARNING", "PROJECT_SPECIFIC"]},
+    "facts_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "candidate_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "unit_artifact_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "lesson_markdown_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "answer_book_markdown_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "writer_alias": {"type": "string", "minLength": 1, "maxLength": 80},
+    "reviewer_alias": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"},
+    "reviewer_session_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"},
+    "fresh_context_isolated": {"type": "boolean"},
+    "source_reference_inspection": {"type": "boolean"},
+    "packet_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "results": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["occurrence_id", "unit_id", "field", "location", "render_locations", "text_sha256", "outcome", "authority_references", "findings"], "properties": {
+      "occurrence_id": {"type": "string", "pattern": "^GL-OCC-[0-9a-f]{64}$"},
+      "unit_id": {"type": "string", "pattern": "^CURRICULUM-(UNIT|PRIMER)-[0-9a-f]{64}$"},
+      "field": {"type": "string", "minLength": 1, "maxLength": 100},
+      "location": {"type": "string", "minLength": 1, "maxLength": 120},
+      "render_locations": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1, "maxLength": 120}},
+      "text_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+      "outcome": {"enum": ["SUPPORTED_BY_AUTHORITY", "NONFACTUAL_TEACHING", "NEEDS_REVISION", "UNABLE_TO_ASSESS"]},
+      "authority_references": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["reference_id", "title", "publisher", "locator", "edition", "authority_class"], "properties": {
+        "reference_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,95}$"},
+        "title": {"type": "string", "minLength": 1, "maxLength": 200},
+        "publisher": {"type": "string", "minLength": 1, "maxLength": 120},
+        "locator": {"type": "string", "minLength": 1, "maxLength": 400},
+        "edition": {"type": ["string", "null"], "maxLength": 120},
+        "authority_class": {"enum": ["STANDARD", "OFFICIAL_DOCUMENTATION", "ACADEMIC", "OTHER_PRIMARY_AUTHORITY"]}
+      }}},
+      "findings": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["issue_code", "location_id", "severity", "recommended_action", "focus", "repair_guidance"], "properties": {
+        "issue_code": {"enum": ["UNSUPPORTED_GENERAL_FACT", "CONTRADICTED_OR_OUTDATED", "MISSING_SCOPE_OR_CONDITION", "TARGET_PROJECT_ASSERTION", "SENSITIVE_OR_COPIED_CONTENT", "AUTHORITY_INADEQUATE", "UNABLE_TO_ASSESS"]},
+        "location_id": {"type": "string", "minLength": 1},
+        "severity": {"enum": ["BLOCKER", "MAJOR", "MINOR"]},
+        "recommended_action": {"enum": ["CITE_AUTHORITY", "REWRITE_AS_NONFACTUAL_TEACHING", "REMOVE_TARGET_PROJECT_CLAIM", "REDACT_OR_REWRITE_CONTENT", "NARROW_OR_CORRECT_CLAIM", "NO_CHANGE"]},
+        "focus": {"type": "string", "minLength": 1, "maxLength": 160},
+        "repair_guidance": {"type": "string", "minLength": 1, "maxLength": 240}
+      }}}
+    }}}
+  }
+}

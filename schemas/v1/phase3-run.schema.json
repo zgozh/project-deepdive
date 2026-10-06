@@ -1,0 +1,139 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://project-deepdive.dev/schemas/v1/phase3-run.schema.json",
+  "title": "Project DeepDive Phase 3 run package",
+  "description": "A portable manifest for already-generated Phase 2 and Phase 3 artifacts, with a recomputable E1 audit summary.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "artifact_kind",
+    "schema_version",
+    "repository_revision",
+    "generated_at",
+    "status",
+    "snapshot_kind",
+    "source_metadata",
+    "members",
+    "e1_audit"
+  ],
+  "properties": {
+    "artifact_kind": {"const": "phase3-run"},
+    "schema_version": {"const": "1.0.0"},
+    "repository_revision": {"type": "string", "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"},
+    "generated_at": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"},
+    "status": {"enum": ["PASS", "PARTIAL"]},
+    "snapshot_kind": {"enum": ["worktree", "git-tree"]},
+    "source_metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["snapshot_kind", "g01_status", "unknown_files", "project_index_sha256", "coverage_sha256"],
+      "properties": {
+        "snapshot_kind": {"enum": ["worktree", "git-tree"]},
+        "g01_status": {"enum": ["PASS", "PARTIAL"]},
+        "unknown_files": {"type": "integer", "minimum": 0},
+        "project_index_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "coverage_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "members": {
+      "type": "array",
+      "minItems": 4,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "artifact_kind", "schema_version", "sha256"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "pattern": "^(phase2/(project-index|coverage)\\.json|phase3a/(stack-profile|evidence)\\.json|python/(static-analysis|evidence)\\.json|java-v12/(static-analysis|evidence)\\.json|java-v13/(static-analysis|evidence)\\.json|frontend/(static-analysis|evidence)\\.json)$"
+          },
+          "artifact_kind": {"enum": ["project-index", "coverage", "stack-profile", "evidence", "static-analysis"]},
+          "schema_version": {"type": "string", "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        }
+      }
+    },
+    "e1_audit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "g01", "adapters", "counts", "limitations"],
+      "properties": {
+        "status": {"enum": ["PASS", "PARTIAL"]},
+        "g01": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["before", "after"],
+          "properties": {
+            "before": {"enum": ["PASS", "PARTIAL"]},
+            "after": {"enum": ["PASS", "PARTIAL"]}
+          }
+        },
+        "adapters": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["python", "java", "frontend"],
+          "properties": {
+            "python": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["status", "version", "applicable_files", "analyzed_files", "skipped_files", "partial_files", "limitations"],
+              "properties": {
+                "status": {"enum": ["PASS", "PARTIAL", "FAIL", "NOT_RUN"]},
+                "version": {"type": ["string", "null"]},
+                "applicable_files": {"type": "integer", "minimum": 0},
+                "analyzed_files": {"type": "integer", "minimum": 0},
+                "skipped_files": {"type": "integer", "minimum": 0},
+                "partial_files": {"type": "integer", "minimum": 0},
+                "limitations": {"type": "array", "items": {"type": "string"}}
+              }
+            },
+            "java": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["status", "version", "applicable_files", "analyzed_files", "skipped_files", "partial_files", "limitations"],
+              "properties": {
+                "status": {"enum": ["PASS", "PARTIAL", "FAIL", "NOT_RUN"]},
+                "version": {"type": ["string", "null"]},
+                "applicable_files": {"type": "integer", "minimum": 0},
+                "analyzed_files": {"type": "integer", "minimum": 0},
+                "skipped_files": {"type": "integer", "minimum": 0},
+                "partial_files": {"type": "integer", "minimum": 0},
+                "limitations": {"type": "array", "items": {"type": "string"}}
+              }
+            },
+            "frontend": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["status", "version", "applicable_files", "analyzed_files", "skipped_files", "partial_files", "limitations"],
+              "properties": {
+                "status": {"enum": ["PASS", "PARTIAL", "FAIL", "NOT_RUN"]},
+                "version": {"type": ["string", "null"]},
+                "applicable_files": {"type": "integer", "minimum": 0},
+                "analyzed_files": {"type": "integer", "minimum": 0},
+                "skipped_files": {"type": "integer", "minimum": 0},
+                "partial_files": {"type": "integer", "minimum": 0},
+                "limitations": {"type": "array", "items": {"type": "string"}}
+              }
+            }
+          }
+        },
+        "counts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["tracked_files", "covered_tracked_files", "unknown_tracked_files", "analyzed_files", "skipped_files", "partial_files", "unreported_source_files", "outside_analyzer_files"],
+          "properties": {
+            "tracked_files": {"type": "integer", "minimum": 0},
+            "covered_tracked_files": {"type": "integer", "minimum": 0},
+            "unknown_tracked_files": {"type": "integer", "minimum": 0},
+            "analyzed_files": {"type": "integer", "minimum": 0},
+            "skipped_files": {"type": "integer", "minimum": 0},
+            "partial_files": {"type": "integer", "minimum": 0},
+            "unreported_source_files": {"type": "integer", "minimum": 0},
+            "outside_analyzer_files": {"type": "integer", "minimum": 0}
+          }
+        },
+        "limitations": {"type": "array", "items": {"type": "string"}}
+      }
+    }
+  }
+}

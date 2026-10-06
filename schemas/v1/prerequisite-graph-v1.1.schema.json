@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://project-deepdive.dev/schemas/v1/prerequisite-graph-v1.1.schema.json",
+  "title": "Project DeepDive v1.1 Prerequisite Graph",
+  "description": "Compact proposed learning prerequisites derived from one source-authenticated Phase 4C package; every REQUIRES relation is unverified teaching structure.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "artifact_kind",
+    "schema_version",
+    "repository_revision",
+    "generated_at",
+    "snapshot_kind",
+    "source_metadata",
+    "source_status",
+    "source_run_manifest_sha256",
+    "phase4_inputs",
+    "candidate_input",
+    "nodes",
+    "edges"
+  ],
+  "properties": {
+    "artifact_kind": {"const": "prerequisite-graph"},
+    "schema_version": {"const": "1.1.0"},
+    "repository_revision": {"type": "string", "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"},
+    "generated_at": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"},
+    "snapshot_kind": {"enum": ["worktree", "git-tree"]},
+    "source_metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["snapshot_kind", "g01_status", "unknown_files", "project_index_sha256", "coverage_sha256"],
+      "properties": {
+        "snapshot_kind": {"enum": ["worktree", "git-tree"]},
+        "g01_status": {"enum": ["PASS", "PARTIAL"]},
+        "unknown_files": {"type": "integer", "minimum": 0},
+        "project_index_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "coverage_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "source_status": {"enum": ["PASS", "PARTIAL"]},
+    "source_run_manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "phase4_inputs": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "artifact_kind", "schema_version", "sha256"],
+        "properties": {
+          "path": {"enum": ["evidence.json", "knowledge-graph.json", "semantic-proposals.json"]},
+          "artifact_kind": {"enum": ["evidence", "knowledge-graph", "semantic-proposals"]},
+          "schema_version": {"enum": ["1.0.0", "1.1.0", "1.2.0", "1.4.0"]},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        }
+      }
+    },
+    "candidate_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact_kind", "schema_version", "sha256"],
+      "properties": {
+        "artifact_kind": {"const": "prerequisite-candidates"},
+        "schema_version": {"const": "1.1.0"},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "concept_key", "type", "label", "scope", "epistemic_status", "source_refs"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^PREREQ-NODE-[0-9a-f]{64}$"},
+          "concept_key": {"type": "string", "pattern": "^[a-z][a-z0-9._-]{0,63}$"},
+          "type": {"enum": ["Concept", "Command", "LanguageFeature", "FrameworkMechanism", "InfrastructureConcept"]},
+          "label": {"type": "string", "minLength": 1},
+          "scope": {"enum": ["PROJECT_SPECIFIC", "GENERAL_LEARNING"]},
+          "epistemic_status": {"enum": ["E6_PROVISIONAL", "UNVERIFIED_TEACHING"]},
+          "source_refs": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["graph_node_ids", "graph_edge_ids", "evidence_ids", "file_paths"],
+            "properties": {
+              "graph_node_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
+              "graph_edge_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
+              "evidence_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
+              "file_paths": {"type": "array", "items": {"type": "string", "minLength": 1}}
+            }
+          }
+        }
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "type", "from", "to", "epistemic_status"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^PREREQ-EDGE-[0-9a-f]{64}$"},
+          "type": {"const": "REQUIRES"},
+          "from": {"type": "string", "pattern": "^PREREQ-NODE-[0-9a-f]{64}$"},
+          "to": {"type": "string", "pattern": "^PREREQ-NODE-[0-9a-f]{64}$"},
+          "epistemic_status": {"const": "UNVERIFIED_TEACHING"}
+        }
+      }
+    }
+  }
+}

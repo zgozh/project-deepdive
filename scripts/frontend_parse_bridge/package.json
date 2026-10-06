@@ -1,0 +1,10 @@
+{
+  "name": "project-deepdive-frontend-parse-bridge",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Tool-local TypeScript parser dependency for explicit frontend source analysis.",
+  "dependencies": {
+    "typescript": "6.0.3"
+  }
+}

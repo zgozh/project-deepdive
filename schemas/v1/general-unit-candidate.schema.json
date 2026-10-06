@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://project-deepdive.dev/schemas/v1/general-unit-candidate.schema.json",
+  "title": "Project DeepDive Phase 6D2A General Unit Candidate",
+  "description": "Explicit Writer-owned, unreviewed teaching content bound to exact prepared facts.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["artifact_kind", "schema_version", "curriculum_unit_id", "facts_sha256", "origin", "scope", "writer_alias", "lesson"],
+  "properties": {
+    "artifact_kind": {"const": "general-unit-candidate"},
+    "schema_version": {"const": "1.0.0"},
+    "curriculum_unit_id": {"type": "string", "pattern": "^CURRICULUM-(UNIT|PRIMER)-[0-9a-f]{64}$"},
+    "facts_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "origin": {"enum": ["CANDIDATE", "PREREQUISITE_PRIMER"]},
+    "scope": {"enum": ["PROJECT_SPECIFIC", "GENERAL_LEARNING"]},
+    "writer_alias": {"type": "string", "minLength": 1, "maxLength": 80},
+    "unit_key": {"type": "string", "pattern": "^[a-z][a-z0-9._-]{0,63}$"},
+    "primer_concept_key": {"type": "string", "pattern": "^[a-z][a-z0-9._-]{0,63}$"},
+    "prerequisite_node_id": {"type": "string", "pattern": "^PREREQ-NODE-[0-9a-f]{64}$"},
+    "concept_epistemic_status": {"enum": ["E6_PROVISIONAL", "UNVERIFIED_TEACHING"]},
+    "lesson": {
+      "type": "object", "additionalProperties": false,
+      "required": ["intuition", "prerequisite_explanations", "concept_explanations", "worked_example", "common_misconception", "learning_check"],
+      "properties": {
+        "intuition": {"type": "string", "minLength": 1, "maxLength": 12000},
+        "prerequisite_explanations": {
+          "type": "array",
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["concept_key", "explanation"],
+            "properties": {
+              "concept_key": {"type": "string", "pattern": "^[a-z][a-z0-9._-]{0,63}$"},
+              "explanation": {"type": "string", "minLength": 1, "maxLength": 6000}
+            }
+          }
+        },
+        "concept_explanations": {
+          "type": "array",
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["concept_key", "explanation"],
+            "properties": {
+              "concept_key": {"type": "string", "pattern": "^[a-z][a-z0-9._-]{0,63}$"},
+              "explanation": {"type": "string", "minLength": 1, "maxLength": 6000}
+            }
+          }
+        },
+        "worked_example": {"type": "string", "minLength": 1, "maxLength": 12000},
+        "common_misconception": {"type": "string", "minLength": 1, "maxLength": 6000},
+        "learning_check": {
+          "type": "object", "additionalProperties": false,
+          "required": ["question", "reference_answer", "hints", "rubric"],
+          "properties": {
+            "question": {"type": "string", "minLength": 1, "maxLength": 6000},
+            "reference_answer": {"type": "string", "minLength": 1, "maxLength": 12000},
+            "hints": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1, "maxLength": 3000}},
+            "rubric": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1, "maxLength": 3000}}
+          }
+        }
+      }
+    }
+  }
+}

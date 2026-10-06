@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://project-deepdive.dev/schemas/v1/chapter-beginner-review.schema.json",
+  "title": "Project DeepDive Phase 6B1 Beginner Critic Report",
+  "description": "Fixed section and exercise-set review coverage for the declared BEGINNER profile; no factual verdict.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["artifact_kind", "schema_version", "generated_at", "review_session_id", "review_session_sha256", "review_round", "repository_revision", "snapshot_kind", "source_run_manifest_sha256", "chapter_id", "chapter_sha256", "chapter_facts_sha256", "exercise_bank_sha256", "reviewer_alias", "reviewer_session_id", "fresh_context_isolated", "packet_sha256", "results"],
+  "properties": {
+    "artifact_kind": {"const": "chapter-beginner-review"},
+    "schema_version": {"const": "1.0.0"},
+    "generated_at": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"},
+    "review_session_id": {"type": "string", "pattern": "^REVIEW-[0-9a-f]{64}$"},
+    "review_session_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "review_round": {"const": 0},
+    "repository_revision": {"type": "string", "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"},
+    "snapshot_kind": {"enum": ["worktree", "git-tree"]},
+    "source_run_manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "chapter_id": {"type": "string", "pattern": "^CHAPTER-[0-9a-f]{64}$"},
+    "chapter_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "chapter_facts_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "exercise_bank_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "reviewer_alias": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"},
+    "reviewer_session_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"},
+    "fresh_context_isolated": {"type": "boolean"},
+    "packet_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "results": {
+      "type": "array", "minItems": 10, "maxItems": 10,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["scope_id", "scope_kind", "heading", "line_number", "line_sha256", "outcome", "findings"],
+        "properties": {
+          "scope_id": {"type": "string", "pattern": "^(SECTION|EXERCISES)-[0-9a-f]{64}$"},
+          "scope_kind": {"enum": ["SECTION", "EXERCISE_SET"]},
+          "heading": {"enum": ["Intuition", "Prerequisite", "Project use", "Architecture", "Source", "Mechanism", "Failure and debugging", "Extension", "Learning checks", "Exercise set"]},
+          "line_number": {"type": "integer", "minimum": 1},
+          "line_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "outcome": {"enum": ["FOLLOWABLE_FOR_DECLARED_BEGINNER", "NEEDS_REVISION", "UNABLE_TO_ASSESS"]},
+          "findings": {
+            "type": "array",
+            "items": {
+              "type": "object", "additionalProperties": false,
+              "required": ["location_kind", "location_id", "issue_code", "severity", "recommended_action"],
+              "properties": {
+                "location_kind": {"enum": ["section", "occurrence", "exercise"]},
+                "location_id": {"type": "string", "minLength": 1},
+                "issue_code": {"enum": ["UNDEFINED_JARGON", "MISSING_PREREQUISITE", "PURPOSE_NOT_ESTABLISHED", "PROJECT_CONTEXT_MISSING", "UNEXPLAINED_COMMAND", "ABSTRACTION_JUMP", "ORDERING_BREAK", "EXERCISE_UNCLEAR", "OTHER_BEGINNER_BARRIER"]},
+                "severity": {"enum": ["BLOCKER", "MAJOR", "MINOR"]},
+                "recommended_action": {"enum": ["DEFINE_TERM_BEFORE_USE", "ADD_PREREQUISITE", "ADD_INTUITION", "ADD_PROJECT_CONTEXT", "EXPLAIN_COMMAND", "REORDER_OR_SPLIT", "REWRITE_EXERCISE", "NO_CHANGE"]}
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://project-deepdive.dev/schemas/v1/answer-evidence-review.schema.json",
+  "title": "Project DeepDive Phase 6D1b Answer Evidence Review",
+  "description": "Reviewer-authored source-support findings for every answer fragment; mechanical checks establish identity and coverage only.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["artifact_kind", "schema_version", "generated_at", "review_session_id", "review_session_sha256", "review_round", "repository_revision", "snapshot_kind", "source_run_manifest_sha256", "chapter_id", "chapter_sha256", "chapter_facts_sha256", "exercise_bank_sha256", "chapter_review_session_sha256", "chapter_review_status_sha256", "answer_candidates_sha256", "answer_bank_sha256", "answer_book_sha256", "writer_alias", "reviewer_alias", "reviewer_session_id", "fresh_context_isolated", "direct_source_inspection", "packet_sha256", "results"],
+  "properties": {
+    "artifact_kind": {"const": "answer-evidence-review"},
+    "schema_version": {"const": "1.0.0"},
+    "generated_at": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"},
+    "review_session_id": {"type": "string", "pattern": "^ANSWER-REVIEW-[0-9a-f]{64}$"},
+    "review_session_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "review_round": {"const": 0},
+    "repository_revision": {"type": "string", "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"},
+    "snapshot_kind": {"enum": ["worktree", "git-tree"]},
+    "source_run_manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "chapter_id": {"type": "string", "pattern": "^CHAPTER-[0-9a-f]{64}$"},
+    "chapter_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "chapter_facts_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "exercise_bank_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "chapter_review_session_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "chapter_review_status_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "answer_candidates_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "answer_bank_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "answer_book_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "writer_alias": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"},
+    "reviewer_alias": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"},
+    "reviewer_session_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"},
+    "fresh_context_isolated": {"type": "boolean"},
+    "direct_source_inspection": {"type": "boolean"},
+    "packet_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "results": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["occurrence_id", "question_id", "section", "fragment_index", "hint_level", "text_sha256", "kind", "claim_id", "evidence_ids", "outcome", "findings"],
+        "properties": {
+          "occurrence_id": {"type": "string", "pattern": "^A-OCC-[0-9a-f]{64}$"},
+          "question_id": {"type": "string", "pattern": "^EX-CHAPTER-[0-9a-f]{64}-[a-z][a-z0-9-]{0,63}$"},
+          "section": {"enum": ["worked_steps", "progressive_hints", "common_mistakes", "rubric", "acceptable_tradeoffs"]},
+          "fragment_index": {"type": "integer", "minimum": 0},
+          "hint_level": {"type": ["integer", "null"], "minimum": 1},
+          "text_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "kind": {"enum": ["CLAIM", "GENERAL"]},
+          "claim_id": {"type": ["string", "null"], "pattern": "^CLAIM-[0-9a-f]{64}$"},
+          "evidence_ids": {"type": "array", "items": {"type": "string", "pattern": "^EVID-[A-Za-z0-9._:-]+$"}},
+          "outcome": {"enum": ["CONSISTENT_WITH_CITED_EVIDENCE", "NEEDS_REVISION", "UNABLE_TO_ASSESS", "GENERAL_TEACHING", "PROJECT_FACT_UNMARKED"]},
+          "findings": {
+            "type": "array",
+            "items": {
+              "type": "object", "additionalProperties": false,
+              "required": ["issue_code", "severity", "recommended_action", "evidence_id"],
+              "properties": {
+                "issue_code": {"enum": ["CLAIM_UNSUPPORTED", "CLAIM_OVERGENERALIZED", "E6_PRESENTED_AS_FACT", "CITATION_MISMATCH", "SOURCE_SCOPE_MISMATCH", "LOCATOR_UNAVAILABLE", "PROJECT_FACT_UNMARKED", "OTHER_SUPPORT_GAP"]},
+                "severity": {"enum": ["BLOCKER", "MAJOR", "MINOR"]},
+                "recommended_action": {"enum": ["NARROW_OR_REMOVE_CLAIM", "ADD_OR_FIX_REFERENCE", "LABEL_AS_INFERENCE", "MARK_AS_CLAIM_OR_REWRITE_GENERAL", "NO_CHANGE"]},
+                "evidence_id": {"type": ["string", "null"], "pattern": "^EVID-[A-Za-z0-9._:-]+$"}
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://project-deepdive.dev/schemas/v1/chapter-repair-triage.schema.json",
+  "title": "Project DeepDive Phase 6B2a Authenticated Finding Triage",
+  "description": "Digest-bound deterministic classification of a validated Phase 6B1 package; this is not a repaired chapter or acceptance result.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["artifact_kind", "schema_version", "repository_revision", "generated_at", "snapshot_kind", "source_metadata", "source_status", "source_run_manifest_sha256", "unknown_files", "chapter_id", "chapter_sha256", "chapter_facts_sha256", "exercise_bank_sha256", "review_session_id", "review_session_sha256", "review_status_sha256", "evidence_report_sha256", "beginner_report_sha256", "review_state", "overall_status", "triage_id", "overall_disposition", "finding_counts", "findings"],
+  "properties": {
+    "artifact_kind": {"const": "chapter-repair-triage"},
+    "schema_version": {"const": "1.0.0"},
+    "repository_revision": {"type": "string", "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"},
+    "generated_at": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"},
+    "snapshot_kind": {"enum": ["worktree", "git-tree"]},
+    "source_metadata": {
+      "type": "object", "additionalProperties": false,
+      "required": ["snapshot_kind", "g01_status", "unknown_files", "project_index_sha256", "coverage_sha256"],
+      "properties": {
+        "snapshot_kind": {"enum": ["worktree", "git-tree"]},
+        "g01_status": {"enum": ["PASS", "PARTIAL"]},
+        "unknown_files": {"type": "integer", "minimum": 0},
+        "project_index_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "coverage_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "source_status": {"enum": ["PASS", "PARTIAL"]},
+    "source_run_manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "unknown_files": {"type": "integer", "minimum": 0},
+    "chapter_id": {"type": "string", "pattern": "^CHAPTER-[0-9a-f]{64}$"},
+    "chapter_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "chapter_facts_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "exercise_bank_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "review_session_id": {"type": "string", "pattern": "^REVIEW-[0-9a-f]{64}$"},
+    "review_session_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "review_status_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "evidence_report_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "beginner_report_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "review_state": {"enum": ["REVIEWED_DRAFT", "REPAIR_REQUIRED", "REVIEW_INCOMPLETE"]},
+    "overall_status": {"const": "PARTIAL"},
+    "triage_id": {"type": "string", "pattern": "^TRIAGE-[0-9a-f]{64}$"},
+    "overall_disposition": {"enum": ["UPSTREAM_CLAIM_REQUIRED", "TEACHING_EDIT_POSSIBLE", "NO_SAME_FACTS_EDIT"]},
+    "finding_counts": {
+      "type": "object", "additionalProperties": false,
+      "required": ["TEACHING_EDIT_POSSIBLE", "UPSTREAM_CLAIM_REQUIRED"],
+      "properties": {
+        "TEACHING_EDIT_POSSIBLE": {"type": "integer", "minimum": 0},
+        "UPSTREAM_CLAIM_REQUIRED": {"type": "integer", "minimum": 0}
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["finding_id", "report_role", "bound_id", "finding_index", "issue_code", "classification", "severity", "reported_action", "evidence_id", "location_kind", "location_id"],
+        "properties": {
+          "finding_id": {"type": "string", "pattern": "^FINDING-[0-9a-f]{64}$"},
+          "report_role": {"enum": ["EVIDENCE", "BEGINNER"]},
+          "bound_id": {"type": "string", "pattern": "^(OCC|SECTION|EXERCISES)-[0-9a-f]{64}$"},
+          "finding_index": {"type": "integer", "minimum": 0},
+          "issue_code": {"enum": ["CLAIM_UNSUPPORTED", "E6_PRESENTED_AS_FACT", "CITATION_MISMATCH", "LOCATOR_UNAVAILABLE", "PROJECT_FACT_UNMARKED", "CONTRADICTORY_WORDING", "SCOPE_OVERREACH", "OTHER_SUPPORT_GAP", "UNDEFINED_JARGON", "MISSING_PREREQUISITE", "PURPOSE_NOT_ESTABLISHED", "PROJECT_CONTEXT_MISSING", "UNEXPLAINED_COMMAND", "ABSTRACTION_JUMP", "ORDERING_BREAK", "EXERCISE_UNCLEAR", "OTHER_BEGINNER_BARRIER"]},
+          "classification": {"enum": ["TEACHING_EDIT_POSSIBLE", "UPSTREAM_CLAIM_REQUIRED"]},
+          "severity": {"enum": ["BLOCKER", "MAJOR", "MINOR"]},
+          "reported_action": {"enum": ["MARK_AS_CLAIM_OR_REWRITE_AS_GENERAL", "NARROW_OR_REMOVE_CLAIM", "ADD_OR_FIX_REFERENCE", "LABEL_AS_INFERENCE", "NO_CHANGE", "DEFINE_TERM_BEFORE_USE", "ADD_PREREQUISITE", "ADD_INTUITION", "ADD_PROJECT_CONTEXT", "EXPLAIN_COMMAND", "REORDER_OR_SPLIT", "REWRITE_EXERCISE"]},
+          "evidence_id": {"type": ["string", "null"], "pattern": "^EVID-[A-Za-z0-9._:-]+$"},
+          "location_kind": {"type": ["string", "null"], "enum": ["section", "occurrence", "exercise", null]},
+          "location_id": {"type": ["string", "null"], "minLength": 1}
+        }
+      }
+    }
+  }
+}

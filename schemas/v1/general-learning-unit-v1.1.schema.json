@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://project-deepdive.dev/schemas/v1/general-learning-unit-v1.1.schema.json",
+  "title": "Project DeepDive Phase 6D2A General Learning Unit 1.1",
+  "description": "Canonical one-unit teaching artifact with beginner-oriented question-only lesson and separate answer-book renderings; factuality and learner review remain unrun.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["artifact_kind", "schema_version", "repository_revision", "generated_at", "snapshot_kind", "source_metadata", "source_status", "source_run_manifest_sha256", "unknown_files", "input_digests", "selected_unit", "candidate", "prepared_facts_sha256", "candidate_sha256", "lesson_markdown_sha256", "answer_book_markdown_sha256", "lesson_status", "answer_book_status", "overall_status", "epistemic_status", "general_fact_review", "beginner_review", "answer_book_review"],
+  "properties": {
+    "artifact_kind": {"const": "general-learning-unit"},
+    "schema_version": {"const": "1.1.0"},
+    "repository_revision": {"type": "string", "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"},
+    "generated_at": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"},
+    "snapshot_kind": {"enum": ["worktree", "git-tree"]},
+    "source_metadata": {
+      "type": "object", "additionalProperties": false,
+      "required": ["snapshot_kind", "g01_status", "unknown_files", "project_index_sha256", "coverage_sha256"],
+      "properties": {
+        "snapshot_kind": {"enum": ["worktree", "git-tree"]},
+        "g01_status": {"enum": ["PASS", "PARTIAL"]},
+        "unknown_files": {"type": "integer", "minimum": 0},
+        "project_index_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "coverage_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "source_status": {"enum": ["PASS", "PARTIAL"]},
+    "source_run_manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "unknown_files": {"type": "integer", "minimum": 0},
+    "input_digests": {"type": "array", "minItems": 10, "maxItems": 10, "items": {"type": "object", "additionalProperties": false, "required": ["role", "artifact_kind", "schema_version", "sha256"], "properties": {"role": {"enum": ["phase4_base_graph", "phase4_base_evidence", "phase4_semantic_proposals", "phase4_claim_candidates", "phase4_claim_evidence", "phase4_claim_evidence_graph", "phase5_prerequisite_candidates", "phase5_prerequisite_graph", "phase5_curriculum_candidates", "phase5_curriculum"]}, "artifact_kind": {"enum": ["knowledge-graph", "evidence", "semantic-proposals", "claim-candidates", "claim-evidence", "claim-evidence-graph", "prerequisite-candidates", "prerequisite-graph", "curriculum-candidates", "curriculum"]}, "schema_version": {"type": "string", "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}}},
+    "selected_unit": {"type": "object", "additionalProperties": false, "required": ["id", "order", "title", "kind", "scope", "depth", "content_status", "epistemic_status", "prerequisite_ids", "introduces_concept_keys", "requires_concept_keys", "project_refs", "origin"], "properties": {"id": {"type": "string", "pattern": "^CURRICULUM-(UNIT|PRIMER)-[0-9a-f]{64}$"}, "order": {"type": "integer", "minimum": 1}, "title": {"type": "string", "minLength": 1, "maxLength": 200}, "kind": {"enum": ["project-purpose", "prerequisite", "business", "workflow", "architecture", "source", "mechanism", "failure", "vibecoding", "extension", "interview"]}, "scope": {"enum": ["PROJECT_SPECIFIC", "GENERAL_LEARNING"]}, "depth": {"const": 1}, "content_status": {"const": "OUTLINE_ONLY"}, "epistemic_status": {"const": "UNVERIFIED_TEACHING"}, "prerequisite_ids": {"type": "array", "items": {"type": "string", "pattern": "^CURRICULUM-(UNIT|PRIMER)-[0-9a-f]{64}$"}}, "introduces_concept_keys": {"type": "array", "items": {"type": "string", "pattern": "^[a-z][a-z0-9._-]{0,63}$"}}, "requires_concept_keys": {"type": "array", "items": {"type": "string", "pattern": "^[a-z][a-z0-9._-]{0,63}$"}}, "project_refs": {"type": "object", "additionalProperties": false, "required": ["graph_node_ids", "graph_edge_ids", "evidence_ids", "file_paths"], "properties": {"graph_node_ids": {"type": "array", "maxItems": 0, "items": {"type": "string", "minLength": 1}}, "graph_edge_ids": {"type": "array", "maxItems": 0, "items": {"type": "string", "minLength": 1}}, "evidence_ids": {"type": "array", "maxItems": 0, "items": {"type": "string", "minLength": 1}}, "file_paths": {"type": "array", "maxItems": 0, "items": {"type": "string", "minLength": 1}}}}, "origin": {"enum": ["CANDIDATE", "PREREQUISITE_PRIMER"]}, "unit_key": {"type": "string", "pattern": "^[a-z][a-z0-9._-]{0,63}$"}, "primer_concept_key": {"type": "string", "pattern": "^[a-z][a-z0-9._-]{0,63}$"}, "prerequisite_node_id": {"type": "string", "pattern": "^PREREQ-NODE-[0-9a-f]{64}$"}, "concept_epistemic_status": {"enum": ["E6_PROVISIONAL", "UNVERIFIED_TEACHING"]}}},
+    "candidate": {"type": "object", "additionalProperties": false, "required": ["artifact_kind", "schema_version", "curriculum_unit_id", "facts_sha256", "origin", "scope", "writer_alias", "lesson"], "properties": {"artifact_kind": {"const": "general-unit-candidate"}, "schema_version": {"const": "1.0.0"}, "curriculum_unit_id": {"type": "string", "pattern": "^CURRICULUM-(UNIT|PRIMER)-[0-9a-f]{64}$"}, "facts_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "origin": {"enum": ["CANDIDATE", "PREREQUISITE_PRIMER"]}, "scope": {"enum": ["PROJECT_SPECIFIC", "GENERAL_LEARNING"]}, "writer_alias": {"type": "string", "minLength": 1, "maxLength": 80}, "unit_key": {"type": "string", "pattern": "^[a-z][a-z0-9._-]{0,63}$"}, "primer_concept_key": {"type": "string", "pattern": "^[a-z][a-z0-9._-]{0,63}$"}, "prerequisite_node_id": {"type": "string", "pattern": "^PREREQ-NODE-[0-9a-f]{64}$"}, "concept_epistemic_status": {"enum": ["E6_PROVISIONAL", "UNVERIFIED_TEACHING"]}, "lesson": {"type": "object", "additionalProperties": false, "required": ["intuition", "prerequisite_explanations", "concept_explanations", "worked_example", "common_misconception", "learning_check"], "properties": {"intuition": {"type": "string", "minLength": 1, "maxLength": 12000}, "prerequisite_explanations": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["concept_key", "explanation"], "properties": {"concept_key": {"type": "string", "pattern": "^[a-z][a-z0-9._-]{0,63}$"}, "explanation": {"type": "string", "minLength": 1, "maxLength": 6000}}}}, "concept_explanations": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["concept_key", "explanation"], "properties": {"concept_key": {"type": "string", "pattern": "^[a-z][a-z0-9._-]{0,63}$"}, "explanation": {"type": "string", "minLength": 1, "maxLength": 6000}}}}, "worked_example": {"type": "string", "minLength": 1, "maxLength": 12000}, "common_misconception": {"type": "string", "minLength": 1, "maxLength": 6000}, "learning_check": {"type": "object", "additionalProperties": false, "required": ["question", "reference_answer", "hints", "rubric"], "properties": {"question": {"type": "string", "minLength": 1, "maxLength": 6000}, "reference_answer": {"type": "string", "minLength": 1, "maxLength": 12000}, "hints": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1, "maxLength": 3000}}, "rubric": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1, "maxLength": 3000}}}}}}}},
+    "prepared_facts_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "candidate_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "lesson_markdown_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "answer_book_markdown_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "lesson_status": {"const": "DRAFT"},
+    "answer_book_status": {"const": "DRAFT"},
+    "overall_status": {"const": "PARTIAL"},
+    "epistemic_status": {"const": "UNVERIFIED_TEACHING"},
+    "general_fact_review": {"const": "NOT_RUN"},
+    "beginner_review": {"const": "NOT_RUN"},
+    "answer_book_review": {"const": "NOT_RUN"}
+  }
+}

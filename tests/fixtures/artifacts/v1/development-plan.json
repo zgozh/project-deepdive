@@ -1,0 +1,319 @@
+{
+  "artifact_kind": "development-plan",
+  "schema_version": "1.0.0",
+  "repository_revision": "1463a06437fc903edec24722ecbb686a46d8f9da",
+  "generated_at": "2026-10-04T00:00:00Z",
+  "lab_id": "LAB-fixture-account-label",
+  "title": "账户标签演练（合成fixture）",
+  "project_context": "Synthetic author-plan fixture, not a real extension or runtime success. Explore the indexed account-label source before choosing a behavior change.",
+  "prerequisites": "先理解终端目录、Git修订、输入与返回值。 A diff shows changed lines; command output and exit status are separate proof.",
+  "current_workflow": "Use the provided source evidence only. Read the indexed sample account-label path; do not import or execute it. Runtime behavior remains unknown.",
+  "requirement": {
+    "problem": "Simulated requirement: make an account-label behavior change only after repository discovery; no approval or missing feature is asserted.",
+    "actors": [
+      "fixture learner"
+    ],
+    "in_scope": [
+      "a bounded account-label exercise"
+    ],
+    "out_of_scope": [
+      "new service",
+      "deployment"
+    ],
+    "acceptance": [
+      {
+        "id": "A1",
+        "input": "a documented account-label input (simulation)",
+        "expected": "the chosen behavior is observable and existing behavior is preserved"
+      }
+    ]
+  },
+  "decisions": [
+    {
+      "id": "D1",
+      "decision": "reuse the indexed source and one planned test file",
+      "rationale": "keep a small reviewable slice",
+      "source": "synthetic fixture author decision, not user approval"
+    }
+  ],
+  "evidence_refs": [
+    "EVID-py-mini-source"
+  ],
+  "impact": {
+    "architecture": "Preserve the current fixture module; no new runtime architecture.",
+    "call_chain": "Read source input to returned label, then explain the simulated change; unresolved behavior stays unknown.",
+    "existing_files": [
+      "project/app/sample.py"
+    ],
+    "planned_new_files": [
+      "project/tests/test_label.py"
+    ]
+  },
+  "checks": [
+    {
+      "id": "C1",
+      "purpose": "a future isolated behavior test; currently NOT_RUN",
+      "cwd": ".",
+      "command": "python -m unittest",
+      "expected": "discover the selected nonempty behavior checks; no actual result is claimed",
+      "evidence_refs": [
+        "EVID-py-mini-source"
+      ]
+    }
+  ],
+  "slices": [
+    {
+      "id": "S1",
+      "purpose": "one account-label vertical exercise",
+      "depends_on": [],
+      "allowed_existing": [
+        "project/app/sample.py"
+      ],
+      "allowed_new": [
+        "project/tests/test_label.py"
+      ],
+      "protected": [
+        "plan.json"
+      ],
+      "interfaces": "preserve existing input/return responsibility",
+      "tests": [
+        "C1"
+      ],
+      "risks": "fixture coverage is not dogfood evidence",
+      "done": "actual checks and independent review would be required; currently NOT_RUN",
+      "acceptance_refs": [
+        "A1"
+      ],
+      "evidence_refs": [
+        "EVID-py-mini-source"
+      ]
+    }
+  ],
+  "stages": [
+    {
+      "name": "BASELINE",
+      "explanation": "BASELINE exists to keep the learner in control of this synthetic exercise. Explain prerequisites, inputs and expected handoff before action.",
+      "learner_actions": "Start in the verified isolated branch, read the authoritative plan and predict the result. Compare the proposed scope with source evidence and visible behavior. No target write occurs during compilation.",
+      "agent_actions": "Initial prompt: explain this stage and propose a bounded action.\n\nSimulated AI response: add a second service.\n\nHuman check: that is outside scope.\n\nFollow-up prompt: reuse the existing indexed module, preserve interfaces and show exact file/content changes only after discovery.\n\nRevised simulation: one source and test slice, command status NOT_RUN.\n\nContinue only when the original goal and evidence agree.\n\n```python\n# simulated example; not executed\nprint(\"label\")\n```\n\n| Responsibility | Check |\n|---|---|\n| scope | original plan |",
+      "prompt": {
+        "goal": "BASELINE: handle only the current account-label exercise boundary.",
+        "context": "Read the full authoritative development-plan and indexed source evidence. This fixture is simulated, not a real executed project.",
+        "constraints": "No unapproved code changes, no deleted tests, no automatic commands or deployment, no unsupported architecture.",
+        "scope": "Use S1 allowed/protected files; unknown project behavior needs discovery before implementation.",
+        "evidence": "Use EVID-py-mini-source with its original locator and level; preserve inference labels.",
+        "verification": "C1 is only a planned check; actual cwd/command/exit code/results must be recorded by a later authorized exercise.",
+        "done_when": "The specific stage contract is reviewable, unknowns remain visible, implementation/verification remain NOT_RUN.",
+        "output_contract": "Preserve complete teaching, human checks, follow-up, simulated revision, source examples and answers in the author plan projection."
+      },
+      "checks": [
+        "C1"
+      ],
+      "gate": "Explain the stage and compare scope/evidence before continuing; simulated output does not establish success.",
+      "failure_recovery": "If the proposal expands scope, return to the original plan. If a real check is blocked, record NOT_RUN and exact reason; restore from plan and baseline rather than guessing."
+    },
+    {
+      "name": "DISCOVER",
+      "explanation": "DISCOVER exists to keep the learner in control of this synthetic exercise. Explain prerequisites, inputs and expected handoff before action.",
+      "learner_actions": "Start in the verified isolated branch, read the authoritative plan and predict the result. Compare the proposed scope with source evidence and visible behavior. No target write occurs during compilation.",
+      "agent_actions": "Initial prompt: explain this stage and propose a bounded action.\n\nSimulated AI response: add a second service.\n\nHuman check: that is outside scope.\n\nFollow-up prompt: reuse the existing indexed module, preserve interfaces and show exact file/content changes only after discovery.\n\nRevised simulation: one source and test slice, command status NOT_RUN.\n\nContinue only when the original goal and evidence agree.\n\n```python\n# simulated example; not executed\nprint(\"label\")\n```\n\n| Responsibility | Check |\n|---|---|\n| scope | original plan |",
+      "prompt": {
+        "goal": "DISCOVER: handle only the current account-label exercise boundary.",
+        "context": "Read the full authoritative development-plan and indexed source evidence. This fixture is simulated, not a real executed project.",
+        "constraints": "No unapproved code changes, no deleted tests, no automatic commands or deployment, no unsupported architecture.",
+        "scope": "Use S1 allowed/protected files; unknown project behavior needs discovery before implementation.",
+        "evidence": "Use EVID-py-mini-source with its original locator and level; preserve inference labels.",
+        "verification": "C1 is only a planned check; actual cwd/command/exit code/results must be recorded by a later authorized exercise.",
+        "done_when": "The specific stage contract is reviewable, unknowns remain visible, implementation/verification remain NOT_RUN.",
+        "output_contract": "Preserve complete teaching, human checks, follow-up, simulated revision, source examples and answers in the author plan projection."
+      },
+      "checks": [],
+      "gate": "Explain the stage and compare scope/evidence before continuing; simulated output does not establish success.",
+      "failure_recovery": "If the proposal expands scope, return to the original plan. If a real check is blocked, record NOT_RUN and exact reason; restore from plan and baseline rather than guessing."
+    },
+    {
+      "name": "SPEC",
+      "explanation": "SPEC exists to keep the learner in control of this synthetic exercise. Explain prerequisites, inputs and expected handoff before action.",
+      "learner_actions": "Start in the verified isolated branch, read the authoritative plan and predict the result. Compare the proposed scope with source evidence and visible behavior. No target write occurs during compilation.",
+      "agent_actions": "Initial prompt: explain this stage and propose a bounded action.\n\nSimulated AI response: add a second service.\n\nHuman check: that is outside scope.\n\nFollow-up prompt: reuse the existing indexed module, preserve interfaces and show exact file/content changes only after discovery.\n\nRevised simulation: one source and test slice, command status NOT_RUN.\n\nContinue only when the original goal and evidence agree.\n\n```python\n# simulated example; not executed\nprint(\"label\")\n```\n\n| Responsibility | Check |\n|---|---|\n| scope | original plan |",
+      "prompt": {
+        "goal": "SPEC: handle only the current account-label exercise boundary.",
+        "context": "Read the full authoritative development-plan and indexed source evidence. This fixture is simulated, not a real executed project.",
+        "constraints": "No unapproved code changes, no deleted tests, no automatic commands or deployment, no unsupported architecture.",
+        "scope": "Use S1 allowed/protected files; unknown project behavior needs discovery before implementation.",
+        "evidence": "Use EVID-py-mini-source with its original locator and level; preserve inference labels.",
+        "verification": "C1 is only a planned check; actual cwd/command/exit code/results must be recorded by a later authorized exercise.",
+        "done_when": "The specific stage contract is reviewable, unknowns remain visible, implementation/verification remain NOT_RUN.",
+        "output_contract": "Preserve complete teaching, human checks, follow-up, simulated revision, source examples and answers in the author plan projection."
+      },
+      "checks": [],
+      "gate": "Explain the stage and compare scope/evidence before continuing; simulated output does not establish success.",
+      "failure_recovery": "If the proposal expands scope, return to the original plan. If a real check is blocked, record NOT_RUN and exact reason; restore from plan and baseline rather than guessing."
+    },
+    {
+      "name": "PLAN",
+      "explanation": "PLAN exists to keep the learner in control of this synthetic exercise. Explain prerequisites, inputs and expected handoff before action.",
+      "learner_actions": "Start in the verified isolated branch, read the authoritative plan and predict the result. Compare the proposed scope with source evidence and visible behavior. No target write occurs during compilation.",
+      "agent_actions": "Initial prompt: explain this stage and propose a bounded action.\n\nSimulated AI response: add a second service.\n\nHuman check: that is outside scope.\n\nFollow-up prompt: reuse the existing indexed module, preserve interfaces and show exact file/content changes only after discovery.\n\nRevised simulation: one source and test slice, command status NOT_RUN.\n\nContinue only when the original goal and evidence agree.\n\n```python\n# simulated example; not executed\nprint(\"label\")\n```\n\n| Responsibility | Check |\n|---|---|\n| scope | original plan |",
+      "prompt": {
+        "goal": "PLAN: handle only the current account-label exercise boundary.",
+        "context": "Read the full authoritative development-plan and indexed source evidence. This fixture is simulated, not a real executed project.",
+        "constraints": "No unapproved code changes, no deleted tests, no automatic commands or deployment, no unsupported architecture.",
+        "scope": "Use S1 allowed/protected files; unknown project behavior needs discovery before implementation.",
+        "evidence": "Use EVID-py-mini-source with its original locator and level; preserve inference labels.",
+        "verification": "C1 is only a planned check; actual cwd/command/exit code/results must be recorded by a later authorized exercise.",
+        "done_when": "The specific stage contract is reviewable, unknowns remain visible, implementation/verification remain NOT_RUN.",
+        "output_contract": "Preserve complete teaching, human checks, follow-up, simulated revision, source examples and answers in the author plan projection."
+      },
+      "checks": [],
+      "gate": "Explain the stage and compare scope/evidence before continuing; simulated output does not establish success.",
+      "failure_recovery": "If the proposal expands scope, return to the original plan. If a real check is blocked, record NOT_RUN and exact reason; restore from plan and baseline rather than guessing."
+    },
+    {
+      "name": "SLICE",
+      "explanation": "SLICE exists to keep the learner in control of this synthetic exercise. Explain prerequisites, inputs and expected handoff before action.",
+      "learner_actions": "Start in the verified isolated branch, read the authoritative plan and predict the result. Compare the proposed scope with source evidence and visible behavior. No target write occurs during compilation.",
+      "agent_actions": "Initial prompt: explain this stage and propose a bounded action.\n\nSimulated AI response: add a second service.\n\nHuman check: that is outside scope.\n\nFollow-up prompt: reuse the existing indexed module, preserve interfaces and show exact file/content changes only after discovery.\n\nRevised simulation: one source and test slice, command status NOT_RUN.\n\nContinue only when the original goal and evidence agree.\n\n```python\n# simulated example; not executed\nprint(\"label\")\n```\n\n| Responsibility | Check |\n|---|---|\n| scope | original plan |",
+      "prompt": {
+        "goal": "SLICE: handle only the current account-label exercise boundary.",
+        "context": "Read the full authoritative development-plan and indexed source evidence. This fixture is simulated, not a real executed project.",
+        "constraints": "No unapproved code changes, no deleted tests, no automatic commands or deployment, no unsupported architecture.",
+        "scope": "Use S1 allowed/protected files; unknown project behavior needs discovery before implementation.",
+        "evidence": "Use EVID-py-mini-source with its original locator and level; preserve inference labels.",
+        "verification": "C1 is only a planned check; actual cwd/command/exit code/results must be recorded by a later authorized exercise.",
+        "done_when": "The specific stage contract is reviewable, unknowns remain visible, implementation/verification remain NOT_RUN.",
+        "output_contract": "Preserve complete teaching, human checks, follow-up, simulated revision, source examples and answers in the author plan projection."
+      },
+      "checks": [],
+      "gate": "Explain the stage and compare scope/evidence before continuing; simulated output does not establish success.",
+      "failure_recovery": "If the proposal expands scope, return to the original plan. If a real check is blocked, record NOT_RUN and exact reason; restore from plan and baseline rather than guessing."
+    },
+    {
+      "name": "BUILD",
+      "explanation": "BUILD exists to keep the learner in control of this synthetic exercise. Explain prerequisites, inputs and expected handoff before action.",
+      "learner_actions": "Start in the verified isolated branch, read the authoritative plan and predict the result. Compare the proposed scope with source evidence and visible behavior. No target write occurs during compilation.",
+      "agent_actions": "Initial prompt: explain this stage and propose a bounded action.\n\nSimulated AI response: add a second service.\n\nHuman check: that is outside scope.\n\nFollow-up prompt: reuse the existing indexed module, preserve interfaces and show exact file/content changes only after discovery.\n\nRevised simulation: one source and test slice, command status NOT_RUN.\n\nContinue only when the original goal and evidence agree.\n\n```python\n# simulated example; not executed\nprint(\"label\")\n```\n\n| Responsibility | Check |\n|---|---|\n| scope | original plan |",
+      "prompt": {
+        "goal": "BUILD: handle only the current account-label exercise boundary.",
+        "context": "Read the full authoritative development-plan and indexed source evidence. This fixture is simulated, not a real executed project.",
+        "constraints": "No unapproved code changes, no deleted tests, no automatic commands or deployment, no unsupported architecture.",
+        "scope": "Use S1 allowed/protected files; unknown project behavior needs discovery before implementation.",
+        "evidence": "Use EVID-py-mini-source with its original locator and level; preserve inference labels.",
+        "verification": "C1 is only a planned check; actual cwd/command/exit code/results must be recorded by a later authorized exercise.",
+        "done_when": "The specific stage contract is reviewable, unknowns remain visible, implementation/verification remain NOT_RUN.",
+        "output_contract": "Preserve complete teaching, human checks, follow-up, simulated revision, source examples and answers in the author plan projection."
+      },
+      "checks": [],
+      "gate": "Explain the stage and compare scope/evidence before continuing; simulated output does not establish success.",
+      "failure_recovery": "If the proposal expands scope, return to the original plan. If a real check is blocked, record NOT_RUN and exact reason; restore from plan and baseline rather than guessing."
+    },
+    {
+      "name": "VERIFY",
+      "explanation": "VERIFY exists to keep the learner in control of this synthetic exercise. Explain prerequisites, inputs and expected handoff before action.",
+      "learner_actions": "Start in the verified isolated branch, read the authoritative plan and predict the result. Compare the proposed scope with source evidence and visible behavior. No target write occurs during compilation.",
+      "agent_actions": "Initial prompt: explain this stage and propose a bounded action.\n\nSimulated AI response: add a second service.\n\nHuman check: that is outside scope.\n\nFollow-up prompt: reuse the existing indexed module, preserve interfaces and show exact file/content changes only after discovery.\n\nRevised simulation: one source and test slice, command status NOT_RUN.\n\nContinue only when the original goal and evidence agree.\n\n```python\n# simulated example; not executed\nprint(\"label\")\n```\n\n| Responsibility | Check |\n|---|---|\n| scope | original plan |",
+      "prompt": {
+        "goal": "VERIFY: handle only the current account-label exercise boundary.",
+        "context": "Read the full authoritative development-plan and indexed source evidence. This fixture is simulated, not a real executed project.",
+        "constraints": "No unapproved code changes, no deleted tests, no automatic commands or deployment, no unsupported architecture.",
+        "scope": "Use S1 allowed/protected files; unknown project behavior needs discovery before implementation.",
+        "evidence": "Use EVID-py-mini-source with its original locator and level; preserve inference labels.",
+        "verification": "C1 is only a planned check; actual cwd/command/exit code/results must be recorded by a later authorized exercise.",
+        "done_when": "The specific stage contract is reviewable, unknowns remain visible, implementation/verification remain NOT_RUN.",
+        "output_contract": "Preserve complete teaching, human checks, follow-up, simulated revision, source examples and answers in the author plan projection."
+      },
+      "checks": [
+        "C1"
+      ],
+      "gate": "Explain the stage and compare scope/evidence before continuing; simulated output does not establish success.",
+      "failure_recovery": "If the proposal expands scope, return to the original plan. If a real check is blocked, record NOT_RUN and exact reason; restore from plan and baseline rather than guessing."
+    },
+    {
+      "name": "REVIEW",
+      "explanation": "REVIEW exists to keep the learner in control of this synthetic exercise. Explain prerequisites, inputs and expected handoff before action.",
+      "learner_actions": "Start in the verified isolated branch, read the authoritative plan and predict the result. Compare the proposed scope with source evidence and visible behavior. No target write occurs during compilation.",
+      "agent_actions": "Initial prompt: explain this stage and propose a bounded action.\n\nSimulated AI response: add a second service.\n\nHuman check: that is outside scope.\n\nFollow-up prompt: reuse the existing indexed module, preserve interfaces and show exact file/content changes only after discovery.\n\nRevised simulation: one source and test slice, command status NOT_RUN.\n\nContinue only when the original goal and evidence agree.\n\n```python\n# simulated example; not executed\nprint(\"label\")\n```\n\n| Responsibility | Check |\n|---|---|\n| scope | original plan |",
+      "prompt": {
+        "goal": "REVIEW: handle only the current account-label exercise boundary.",
+        "context": "Read the full authoritative development-plan and indexed source evidence. This fixture is simulated, not a real executed project.",
+        "constraints": "No unapproved code changes, no deleted tests, no automatic commands or deployment, no unsupported architecture.",
+        "scope": "Use S1 allowed/protected files; unknown project behavior needs discovery before implementation.",
+        "evidence": "Use EVID-py-mini-source with its original locator and level; preserve inference labels.",
+        "verification": "C1 is only a planned check; actual cwd/command/exit code/results must be recorded by a later authorized exercise.",
+        "done_when": "The specific stage contract is reviewable, unknowns remain visible, implementation/verification remain NOT_RUN.",
+        "output_contract": "Preserve complete teaching, human checks, follow-up, simulated revision, source examples and answers in the author plan projection."
+      },
+      "checks": [],
+      "gate": "Explain the stage and compare scope/evidence before continuing; simulated output does not establish success.",
+      "failure_recovery": "If the proposal expands scope, return to the original plan. If a real check is blocked, record NOT_RUN and exact reason; restore from plan and baseline rather than guessing."
+    },
+    {
+      "name": "REPAIR",
+      "explanation": "REPAIR exists to keep the learner in control of this synthetic exercise. Explain prerequisites, inputs and expected handoff before action.",
+      "learner_actions": "Start in the verified isolated branch, read the authoritative plan and predict the result. Compare the proposed scope with source evidence and visible behavior. No target write occurs during compilation.",
+      "agent_actions": "Initial prompt: explain this stage and propose a bounded action.\n\nSimulated AI response: add a second service.\n\nHuman check: that is outside scope.\n\nFollow-up prompt: reuse the existing indexed module, preserve interfaces and show exact file/content changes only after discovery.\n\nRevised simulation: one source and test slice, command status NOT_RUN.\n\nContinue only when the original goal and evidence agree.\n\n```python\n# simulated example; not executed\nprint(\"label\")\n```\n\n| Responsibility | Check |\n|---|---|\n| scope | original plan |",
+      "prompt": {
+        "goal": "REPAIR: handle only the current account-label exercise boundary.",
+        "context": "Read the full authoritative development-plan and indexed source evidence. This fixture is simulated, not a real executed project.",
+        "constraints": "No unapproved code changes, no deleted tests, no automatic commands or deployment, no unsupported architecture.",
+        "scope": "Use S1 allowed/protected files; unknown project behavior needs discovery before implementation.",
+        "evidence": "Use EVID-py-mini-source with its original locator and level; preserve inference labels.",
+        "verification": "C1 is only a planned check; actual cwd/command/exit code/results must be recorded by a later authorized exercise.",
+        "done_when": "The specific stage contract is reviewable, unknowns remain visible, implementation/verification remain NOT_RUN.",
+        "output_contract": "Preserve complete teaching, human checks, follow-up, simulated revision, source examples and answers in the author plan projection."
+      },
+      "checks": [],
+      "gate": "Explain the stage and compare scope/evidence before continuing; simulated output does not establish success.",
+      "failure_recovery": "If the proposal expands scope, return to the original plan. If a real check is blocked, record NOT_RUN and exact reason; restore from plan and baseline rather than guessing."
+    },
+    {
+      "name": "FULL-CHAIN",
+      "explanation": "FULL-CHAIN exists to keep the learner in control of this synthetic exercise. Explain prerequisites, inputs and expected handoff before action.",
+      "learner_actions": "Start in the verified isolated branch, read the authoritative plan and predict the result. Compare the proposed scope with source evidence and visible behavior. No target write occurs during compilation.",
+      "agent_actions": "Initial prompt: explain this stage and propose a bounded action.\n\nSimulated AI response: add a second service.\n\nHuman check: that is outside scope.\n\nFollow-up prompt: reuse the existing indexed module, preserve interfaces and show exact file/content changes only after discovery.\n\nRevised simulation: one source and test slice, command status NOT_RUN.\n\nContinue only when the original goal and evidence agree.\n\n```python\n# simulated example; not executed\nprint(\"label\")\n```\n\n| Responsibility | Check |\n|---|---|\n| scope | original plan |",
+      "prompt": {
+        "goal": "FULL-CHAIN: handle only the current account-label exercise boundary.",
+        "context": "Read the full authoritative development-plan and indexed source evidence. This fixture is simulated, not a real executed project.",
+        "constraints": "No unapproved code changes, no deleted tests, no automatic commands or deployment, no unsupported architecture.",
+        "scope": "Use S1 allowed/protected files; unknown project behavior needs discovery before implementation.",
+        "evidence": "Use EVID-py-mini-source with its original locator and level; preserve inference labels.",
+        "verification": "C1 is only a planned check; actual cwd/command/exit code/results must be recorded by a later authorized exercise.",
+        "done_when": "The specific stage contract is reviewable, unknowns remain visible, implementation/verification remain NOT_RUN.",
+        "output_contract": "Preserve complete teaching, human checks, follow-up, simulated revision, source examples and answers in the author plan projection."
+      },
+      "checks": [
+        "C1"
+      ],
+      "gate": "Explain the stage and compare scope/evidence before continuing; simulated output does not establish success.",
+      "failure_recovery": "If the proposal expands scope, return to the original plan. If a real check is blocked, record NOT_RUN and exact reason; restore from plan and baseline rather than guessing."
+    },
+    {
+      "name": "RETRO",
+      "explanation": "RETRO exists to keep the learner in control of this synthetic exercise. Explain prerequisites, inputs and expected handoff before action.",
+      "learner_actions": "Start in the verified isolated branch, read the authoritative plan and predict the result. Compare the proposed scope with source evidence and visible behavior. No target write occurs during compilation.",
+      "agent_actions": "Initial prompt: explain this stage and propose a bounded action.\n\nSimulated AI response: add a second service.\n\nHuman check: that is outside scope.\n\nFollow-up prompt: reuse the existing indexed module, preserve interfaces and show exact file/content changes only after discovery.\n\nRevised simulation: one source and test slice, command status NOT_RUN.\n\nContinue only when the original goal and evidence agree.\n\n```python\n# simulated example; not executed\nprint(\"label\")\n```\n\n| Responsibility | Check |\n|---|---|\n| scope | original plan |",
+      "prompt": {
+        "goal": "RETRO: handle only the current account-label exercise boundary.",
+        "context": "Read the full authoritative development-plan and indexed source evidence. This fixture is simulated, not a real executed project.",
+        "constraints": "No unapproved code changes, no deleted tests, no automatic commands or deployment, no unsupported architecture.",
+        "scope": "Use S1 allowed/protected files; unknown project behavior needs discovery before implementation.",
+        "evidence": "Use EVID-py-mini-source with its original locator and level; preserve inference labels.",
+        "verification": "C1 is only a planned check; actual cwd/command/exit code/results must be recorded by a later authorized exercise.",
+        "done_when": "The specific stage contract is reviewable, unknowns remain visible, implementation/verification remain NOT_RUN.",
+        "output_contract": "Preserve complete teaching, human checks, follow-up, simulated revision, source examples and answers in the author plan projection."
+      },
+      "checks": [],
+      "gate": "Explain the stage and compare scope/evidence before continuing; simulated output does not establish success.",
+      "failure_recovery": "If the proposal expands scope, return to the original plan. If a real check is blocked, record NOT_RUN and exact reason; restore from plan and baseline rather than guessing."
+    }
+  ],
+  "enterprise_hardening": "This synthetic fixture does not authorize production changes. Runtime permissions and deployment are not applicable to static compilation; any future exercise must explain its own relevant risks.",
+  "interview_followup": [
+    {
+      "question": "为什么生成计划不等于实现通过？",
+      "answer": "计划只定义将做的事。实际命令结果和独立审查尚未发生。"
+    }
+  ],
+  "implementation_status": "NOT_RUN",
+  "verification_status": "NOT_RUN",
+  "review_status": "PENDING"
+}

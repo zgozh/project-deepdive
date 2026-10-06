@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://project-deepdive.dev/schemas/v1/answer-review-status.schema.json",
+  "title": "Project DeepDive Phase 6D1b Non-Promoting Answer Review Status",
+  "description": "Separate reviewer-authored findings bound to one immutable answer book; always remains a partial draft.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["artifact_kind", "schema_version", "review_session_id", "review_session_sha256", "review_round", "generated_at", "repository_revision", "snapshot_kind", "source_metadata", "source_status", "source_run_manifest_sha256", "unknown_files", "chapter_id", "chapter_sha256", "chapter_facts_sha256", "exercise_bank_sha256", "chapter_review_session_sha256", "chapter_review_status_sha256", "answer_candidates_sha256", "answer_bank_sha256", "answer_book_sha256", "evidence_report_sha256", "beginner_report_sha256", "writer_alias", "evidence_reviewer_alias", "beginner_reviewer_alias", "reviewer_contexts_distinct", "verifier_source_inspection", "evidence_outcome", "beginner_outcome", "answer_book_status", "overall_status", "review_state", "finding_counts"],
+  "properties": {
+    "artifact_kind": {"const": "answer-review-status"},
+    "schema_version": {"const": "1.0.0"},
+    "review_session_id": {"type": "string", "pattern": "^ANSWER-REVIEW-[0-9a-f]{64}$"},
+    "review_session_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "review_round": {"const": 0},
+    "generated_at": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"},
+    "repository_revision": {"type": "string", "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"},
+    "snapshot_kind": {"enum": ["worktree", "git-tree"]},
+    "source_metadata": {
+      "type": "object", "additionalProperties": false,
+      "required": ["snapshot_kind", "g01_status", "unknown_files", "project_index_sha256", "coverage_sha256"],
+      "properties": {
+        "snapshot_kind": {"enum": ["worktree", "git-tree"]},
+        "g01_status": {"enum": ["PASS", "PARTIAL"]},
+        "unknown_files": {"type": "integer", "minimum": 0},
+        "project_index_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "coverage_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "source_status": {"enum": ["PASS", "PARTIAL"]},
+    "source_run_manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "unknown_files": {"type": "integer", "minimum": 0},
+    "chapter_id": {"type": "string", "pattern": "^CHAPTER-[0-9a-f]{64}$"},
+    "chapter_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "chapter_facts_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "exercise_bank_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "chapter_review_session_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "chapter_review_status_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "answer_candidates_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "answer_bank_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "answer_book_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "evidence_report_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "beginner_report_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "writer_alias": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"},
+    "evidence_reviewer_alias": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"},
+    "beginner_reviewer_alias": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"},
+    "reviewer_contexts_distinct": {"type": "boolean"},
+    "verifier_source_inspection": {"type": "boolean"},
+    "evidence_outcome": {"enum": ["CONSISTENT_WITH_CITED_EVIDENCE", "NEEDS_REVISION", "UNABLE_TO_ASSESS"]},
+    "beginner_outcome": {"enum": ["FOLLOWABLE_FOR_BEGINNER", "NEEDS_REVISION", "UNABLE_TO_ASSESS"]},
+    "answer_book_status": {"const": "DRAFT"},
+    "overall_status": {"const": "PARTIAL"},
+    "review_state": {"enum": ["REVIEWED_DRAFT", "REPAIR_REQUIRED", "REVIEW_INCOMPLETE"]},
+    "finding_counts": {
+      "type": "object", "additionalProperties": false,
+      "required": ["BLOCKER", "MAJOR", "MINOR"],
+      "properties": {"BLOCKER": {"type": "integer", "minimum": 0}, "MAJOR": {"type": "integer", "minimum": 0}, "MINOR": {"type": "integer", "minimum": 0}}
+    }
+  }
+}

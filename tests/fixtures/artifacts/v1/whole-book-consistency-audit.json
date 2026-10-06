@@ -1,0 +1,49 @@
+{
+  "artifact_kind": "whole-book-consistency-audit",
+  "schema_version": "1.0.0",
+  "repository_revision": "1463a06437fc903edec24722ecbb686a46d8f9da",
+  "generated_at": "2026-09-22T00:00:00Z",
+  "audit_id": "WHOLE-BOOK-AUDIT-9999999999999999999999999999999999999999999999999999999999999999",
+  "assembly_id": "WHOLE-BOOK-ASSEMBLY-8888888888888888888888888888888888888888888888888888888888888888",
+  "assembly_manifest_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "run_plan_id": "CURRICULUM-RUN-PLAN-7777777777777777777777777777777777777777777777777777777777777777",
+  "run_plan_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+  "run_state_id": "CURRICULUM-RUN-STATE-1111111111111111111111111111111111111111111111111111111111111111",
+  "run_state_revision": 1,
+  "run_state_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+  "run_state_schema_version": "1.0.0",
+  "snapshot_kind": "worktree",
+  "source_status": "PASS",
+  "source_run_manifest_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "unknown_files": 0,
+  "curriculum_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "input_digests": [
+    {"role":"phase4_base_graph","artifact_kind":"knowledge-graph","schema_version":"1.1.0","sha256":"1111111111111111111111111111111111111111111111111111111111111111"},
+    {"role":"phase4_base_evidence","artifact_kind":"evidence","schema_version":"1.2.0","sha256":"2222222222222222222222222222222222222222222222222222222222222222"},
+    {"role":"phase4_semantic_proposals","artifact_kind":"semantic-proposals","schema_version":"1.0.0","sha256":"3333333333333333333333333333333333333333333333333333333333333333"},
+    {"role":"phase4_claim_candidates","artifact_kind":"claim-candidates","schema_version":"1.1.0","sha256":"4444444444444444444444444444444444444444444444444444444444444444"},
+    {"role":"phase4_claim_evidence","artifact_kind":"claim-evidence","schema_version":"1.1.0","sha256":"5555555555555555555555555555555555555555555555555555555555555555"},
+    {"role":"phase4_claim_evidence_graph","artifact_kind":"claim-evidence-graph","schema_version":"1.0.0","sha256":"6666666666666666666666666666666666666666666666666666666666666666"},
+    {"role":"phase5_prerequisite_candidates","artifact_kind":"prerequisite-candidates","schema_version":"1.0.0","sha256":"7777777777777777777777777777777777777777777777777777777777777777"},
+    {"role":"phase5_prerequisite_graph","artifact_kind":"prerequisite-graph","schema_version":"1.0.0","sha256":"8888888888888888888888888888888888888888888888888888888888888888"},
+    {"role":"phase5_curriculum_candidates","artifact_kind":"curriculum-candidates","schema_version":"1.0.0","sha256":"9999999999999999999999999999999999999999999999999999999999999999"},
+    {"role":"phase5_curriculum","artifact_kind":"curriculum","schema_version":"1.1.0","sha256":"0000000000000000000000000000000000000000000000000000000000000000"}
+  ],
+  "selected_units": [
+    {"position":1,"unit_id":"CURRICULUM-UNIT-1111111111111111111111111111111111111111111111111111111111111111","route":"D2A_GENERAL_LEARNING","attempt_id":"attempt-0001","prerequisite_ids":[],"review_status_sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","chapter_facts_sha256":null,"answer_status":"INCLUDED","d1b_review_state":null}
+  ],
+  "d3a_outputs": [
+    {"role":"whole_book","path":"WHOLE-BOOK.md","sha256":"4444444444444444444444444444444444444444444444444444444444444444"},
+    {"role":"answer_book","path":"WHOLE-ANSWER-BOOK.md","sha256":"5555555555555555555555555555555555555555555555555555555555555555"},
+    {"role":"quality_and_gaps","path":"QUALITY-AND-GAPS.md","sha256":"6666666666666666666666666666666666666666666666666666666666666666"}
+  ],
+  "check_counts": {"anchor_count":0,"toc_link_count":0,"same_book_fragment_count":0,"prerequisite_count":0,"claim_reference_count":0,"repeated_claim_id_count":0,"finding_count":0},
+  "findings": [],
+  "audit_status": "REPORT_ONLY",
+  "semantic_consistency": "NOT_RUN",
+  "glossary_review": "NOT_RUN",
+  "lesson_status": "DRAFT",
+  "answer_book_status": "DRAFT",
+  "overall_status": "PARTIAL",
+  "report_sha256": "8888888888888888888888888888888888888888888888888888888888888888"
+}

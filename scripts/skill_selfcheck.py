@@ -1,0 +1,1767 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+skill_selfcheck.py —— 技能文档一致性自检（2026-09-16 新增 · A 档止血）
+
+为什么要它：技能语料有 ~3800 行规则，同一条要求同时活在 SKILL.md、references 模板、
+gate_lecture.py 与 examples 样例里。没有这层检查时，实测已发生两类漂移：
+  ① SKILL §6 还写着旧的"每批 1~12 项"清单（既没有 17 节，也没有"用法与接入"）；
+  ② 某批次的自检脚本还在用已作废的 `// :[0-9]` 行号格式。
+**改完技能、同步副本之前必须先跑本脚本，全绿才算改完。**
+
+用法：
+    python scripts/skill_selfcheck.py            # 在技能根目录下运行，或直接给路径
+    退出码 0 = 全绿；1 = 有不一致（按输出逐条修）
+"""
+import ast
+import io
+import os
+import re
+import sys
+import json
+import shutil
+import subprocess
+import tempfile
+from urllib.parse import unquote, urlsplit
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(HERE)
+
+CIRCLED = '①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯'
+
+# 本脚本依赖的 gate 对外符号（check_tools 会逐条校验存在性——本脚本自己也受同一条规矩约束）
+GATE_API = ['USE_MARKS', 'WIRE_MARKS', 'IO_MARKS']
+
+
+def read(rel):
+    p = os.path.join(ROOT, rel)
+    if not os.path.isfile(p):
+        return None
+    text = io.open(p, encoding='utf-8').read()
+    if rel == 'SKILL.md':
+        # The short entry routes execution; the preserved detail still carries
+        # the existing SSOT anchors and section definitions.
+        detail = os.path.join(ROOT, 'references', '第一册质量细则.md')
+        text += '\n' + io.open(detail, encoding='utf-8').read()
+    return text
+
+
+DISCOVERY_ENTRY_DOCUMENTS = (
+    'README.md', 'SKILL.md', 'references/README.md',
+    'docs/使用案例.md', 'docs/安装与执行边界.md',
+    # The reference index names this package-local CLI manual as the script reference.
+    'spec/操作手册-闸门与工具.md',
+)
+MARKDOWN_LINK_RE = re.compile(r'\[[^\]]+\]\(([^)]+)\)')
+SCRIPT_REFERENCE_RE = re.compile(
+    r'(?P<directory>scripts[/\\])?(?P<filename>[A-Za-z0-9_.-]+\.py)\b'
+)
+SCRIPT_MODULE_IMPORT_RE = re.compile(
+    r'^\s*(?:from\s+([A-Za-z_][A-Za-z0-9_.]*)\s+import|import\s+([A-Za-z_][A-Za-z0-9_.]*))',
+    re.M,
+)
+
+
+def package_discovery_documents(root=ROOT):
+    """Return package-local Markdown reachable from the installed entry documents."""
+    docs = {}
+    pending = list(DISCOVERY_ENTRY_DOCUMENTS)
+    while pending:
+        rel = os.path.normpath(pending.pop()).replace('\\', '/')
+        if rel in docs or rel == '..' or rel.startswith('../'):
+            continue
+        path = os.path.join(root, rel.replace('/', os.sep))
+        if not os.path.isfile(path) or not rel.lower().endswith('.md'):
+            continue
+        text = io.open(path, encoding='utf-8').read()
+        docs[rel] = text
+        for raw_target in MARKDOWN_LINK_RE.findall(text):
+            target = raw_target.strip().split()[0].strip('<>')
+            parsed = urlsplit(target)
+            if parsed.scheme or target.startswith('//'):
+                continue
+            local = unquote(parsed.path.split('#', 1)[0])
+            if not local.lower().endswith('.md'):
+                continue
+            linked = os.path.normpath(os.path.join(os.path.dirname(rel), local)).replace('\\', '/')
+            if linked == '..' or linked.startswith('../'):
+                continue
+            pending.append(linked)
+    return docs
+
+
+def analyze_script_discoverability(root, documents):
+    """Find documented script entrypoints, their local imports, missing refs and true orphans."""
+    script_dir = os.path.join(root, 'scripts')
+    modules = {
+        name[:-3]: name for name in sorted(os.listdir(script_dir))
+        if name.endswith('.py') and not name.startswith('test_')
+    }
+    entrypoints = set()
+    missing = set()
+    for text in documents.values():
+        for match in SCRIPT_REFERENCE_RE.finditer(text):
+            filename = match.group('filename')
+            module = filename[:-3]
+            if module in modules:
+                entrypoints.add(module)
+            elif match.group('directory'):
+                missing.add(filename)
+        for from_module, imported_module in SCRIPT_MODULE_IMPORT_RE.findall(text):
+            module_path = from_module or imported_module
+            module = module_path.rsplit('.', 1)[-1]
+            if module in modules:
+                entrypoints.add(module)
+
+    reachable = set()
+    parse_errors = []
+    pending = list(sorted(entrypoints))
+    while pending:
+        module = pending.pop()
+        if module in reachable:
+            continue
+        reachable.add(module)
+        source_path = os.path.join(script_dir, modules[module])
+        try:
+            with io.open(source_path, encoding='utf-8') as source_file:
+                source = source_file.read()
+            tree = ast.parse(source, filename=source_path)
+        except (OSError, SyntaxError) as exc:
+            parse_errors.append('%s: %s' % (modules[module], exc))
+            continue
+        imported = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imported.update(alias.name.split('.')[0] for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                imported.add(node.module.split('.')[0])
+        pending.extend(sorted(imported & set(modules) - reachable))
+
+    return {
+        'entrypoints': sorted(entrypoints),
+        'reachable': sorted(reachable),
+        'missing': sorted(missing),
+        'orphans': sorted(set(modules) - reachable),
+        'parse_errors': sorted(parse_errors),
+    }
+
+
+def scan_files():
+    """所有规则类文档（不含 gate 源码本身）"""
+    out = []
+    for rel in ['SKILL.md', 'docs/复刻式学习方法-通用.md']:
+        t = read(rel)
+        if t is not None:
+            out.append((rel, t))
+    for sub in ('references', 'examples'):
+        d = os.path.join(ROOT, sub)
+        for fn in sorted(os.listdir(d)):
+            if fn.endswith('.md'):
+                out.append((sub + '/' + fn, read(sub + '/' + fn)))
+    return out
+
+
+class Report:
+    def __init__(self):
+        self.bad = 0
+        self.n = 0
+
+    def ok(self, msg):
+        self.n += 1
+        print('  [OK ] ' + msg)
+
+    def fail(self, msg):
+        self.n += 1
+        self.bad += 1
+        print('  [FAIL] ' + msg)
+
+
+def check_version(r):
+    """① gate 必须声明版本号（判据变更要有版本可追）"""
+    g = read('scripts/gate_lecture.py') or ''
+    m = re.search(r'^GATE_VERSION\s*=\s*"([^"]+)"', g, re.M)
+    if m:
+        r.ok('gate 版本号 = %s（gate_lecture.py: GATE_VERSION）' % m.group(1))
+    else:
+        r.fail('scripts/gate_lecture.py 缺 GATE_VERSION 常量（判据变更无法追溯）')
+
+
+def check_markers(r):
+    """② 用法/接入标记必须在 SKILL、批次模板、gate 三处一致。
+    口径：gate 每类标记的**首个**写法是规范写法（docs 必须出现），其余是 gate 容忍的别名（不要求 docs 出现，
+    但别名表必须包含规范写法，否则文档与判据会各认一套）。"""
+    sys.path.insert(0, HERE)
+    import gate_lecture as G          # noqa: E402  （有 __main__ 守卫，可安全 import）
+    groups = {'【怎么用】': G.USE_MARKS, '【怎么接】': G.WIRE_MARKS, '【上下游】': G.IO_MARKS}
+    for canon, alias in groups.items():
+        if alias and alias[0] != canon:
+            r.fail('gate 别名表首位不是规范写法：%s vs %s' % (alias[0], canon))
+        else:
+            r.ok('gate 别名表以规范写法开头：%s（别名 %s）' % (canon, '/'.join(alias[1:]) or '无'))
+    canon_all = list(groups) + ['【扩展步骤】', '⑦.5']
+    skill = read('SKILL.md') or ''
+    tpl = read('references/批次讲解全文模板.md') or ''
+    for mk in canon_all:
+        where = []
+        if mk not in skill:
+            where.append('SKILL.md')
+        if mk not in tpl:
+            where.append('references/批次讲解全文模板.md')
+        if where:
+            r.fail('标记 %s 在 %s 中缺失（gate 按它判 ⑤，缺了就会误判）' % (mk, '、'.join(where)))
+        else:
+            r.ok('标记 %s 三处一致' % mk)
+
+
+def check_sections(r):
+    """③ 17 节骨架：SKILL §6.4 与批次模板的节号集合必须一致（①~⑯ + 索引）"""
+    skill = read('SKILL.md') or ''
+    tpl = read('references/批次讲解全文模板.md') or ''
+    s_ids = set(re.findall(r'^#{4}\s*([' + CIRCLED + r'])\s', skill, re.M))
+    t_ids = set(re.findall(r'^#{3,4}\s*([' + CIRCLED + r'])\s', tpl, re.M))
+    if s_ids == t_ids == set(CIRCLED):
+        r.ok('节号集合一致：①~⑯ 共 16 节（+索引）在 SKILL 与模板中齐备')
+    else:
+        miss_s = set(CIRCLED) - s_ids
+        miss_t = set(CIRCLED) - t_ids
+        r.fail('节号不一致：SKILL 缺 %s；模板缺 %s'
+               % ('、'.join(sorted(miss_s)) or '无', '、'.join(sorted(miss_t)) or '无'))
+    # §6 概要清单必须指向 §6.4（防止再出现"两套节数"）
+    m = re.search(r'^## 6\. 批次教材结构(.*?)^### 6\.1 ', skill, re.M | re.S)
+    body = m.group(1) if m else ''
+    if '§6.4' in body:
+        r.ok('§6 概要已指向 §6.4（节序唯一权威）')
+    else:
+        r.fail('§6 概要清单没有指向 §6.4 —— 会与 §6.4 的 17 节形成两套节数')
+    if '12. 验证证据、已知限制、复习问答与索引' in body:
+        r.fail('§6 仍保留旧的 12 项清单文本')
+    else:
+        r.ok('§6 无旧 12 项清单残留')
+
+
+def check_deprecated(r):
+    """④ 作废写法扫描：出现即 FAIL，除非该行本身在说明"已作废" """
+    pats = [
+        (r'//\s*:\[?0-9', '旧行号格式 `// :N`（应为 `// :L<真实行号>`）'),
+        (r'【教材补注】', '旧补注写法 `// 【教材补注】`（应为 `←教材：`）'),
+        (r'连续\s*5\s*行', '旧密度判据"连续 5 行"（应为"关键行连续 ≥8 行"）'),
+        (r'行号\s*>?\s*0\s*即合格', '旧口径"行号>0 即合格"（应为以 C 组 ④ 为准）'),
+    ]
+    for rel, txt in scan_files():
+        for i, line in enumerate(txt.split('\n'), 1):
+            # 说明"已作废/禁止再用"的行是合法的（那正是废止声明本身）
+            if re.search(r'作废|已废弃|旧写法|旧的|禁止|不再使用', line):
+                continue
+            for pat, desc in pats:
+                if re.search(pat, line):
+                    r.fail('%s:%d 出现%s → %s' % (rel, i, desc, line.strip()[:70]))
+    if not r.bad:
+        r.ok('无作废写法残留（`// :N` / 【教材补注】 / 连续 5 行 / 行号>0 即合格）')
+
+
+def check_refs(r):
+    """⑤ 交叉引用与文件引用必须存在（指向不存在的 §x.y / 文件 = 执行者按错的那份做）"""
+    skill = read('SKILL.md') or ''
+    known = set()
+    for txt in (skill, read('references/批次讲解全文模板.md') or ''):
+        for m in re.finditer(r'^#{3,4}\s*(6\.\d(?:\.\d)?)\s', txt, re.M):
+            known.add(m.group(1))
+    bad = []
+    for m in re.finditer(r'§(6\.\d(?:\.\d)?)', skill):
+        if m.group(1) not in known:
+            bad.append('§' + m.group(1))
+    if bad:
+        r.fail('SKILL 引用了不存在的章节：%s' % '、'.join(sorted(set(bad))))
+    else:
+        r.ok('SKILL 中 §6.x 交叉引用全部有落点')
+
+    miss, skipped = [], []
+    for rel, txt in scan_files():
+        for m in re.finditer(r'`((?:references|examples|scripts|docs|NOTES)/[^`\s]+?\.(?:md|py))`', txt):
+            tgt = m.group(1)
+            if os.path.isfile(os.path.join(ROOT, tgt)):
+                continue
+            # docs/ 与 NOTES/ 前缀可能是**宿主项目**内的路径（如 docs/阶段0-开工清单.md），不是技能自带资产 → 不校验
+            if tgt.startswith(('docs/', 'NOTES/')):
+                skipped.append(tgt)
+            else:
+                miss.append('%s → %s' % (rel, tgt))
+    if miss:
+        r.fail('引用了不存在的技能内文件：%s' % '；'.join(sorted(set(miss))[:6]))
+    else:
+        r.ok('技能内文件引用（references/ examples/ scripts/）全部存在'
+             + ('；跳过 %d 处宿主项目路径（docs/ NOTES/）' % len(set(skipped)) if skipped else ''))
+
+
+def check_ssot(r):
+    """⑥ SSOT 对账（2026-09-16 B1 新增）：质量契约 ↔ SKILL ↔ 模板 ↔ gate 四处一致。
+    这是"规则零丢失"的机械保障：SSOT 里声明的要求，必须在文档里有正文锚点；
+    文档里的写法，必须在 gate 里有对应实现锚点（或显式标 '-' 表示由人判）。"""
+    p = os.path.join(ROOT, 'spec', '00-质量契约.json')
+    if not os.path.isfile(p):
+        r.fail('缺 spec/00-质量契约.json（SSOT）')
+        return
+    ssot = json.load(io.open(p, encoding='utf-8'))
+    skill = read('SKILL.md') or ''
+    tpl = read('references/批次讲解全文模板.md') or ''
+    # 实现锚点的搜索范围 = gate_lecture.py + scripts/ 下所有工具（V3 之后有些条目由工具实现，如 GATE_API）
+    gate = read('scripts/gate_lecture.py') or ''
+    tool_src = {}
+    for fn in sorted(os.listdir(HERE)):
+        if fn.endswith('.py'):
+            tool_src[fn] = read('scripts/' + fn) or ''
+    gate_all_txt = '\n'.join(tool_src.values())
+    # SSOT 声明的层级只能是 L1/L2/L3
+    bad_layer = [e['id'] for e in ssot['entries'] if e.get('layer') not in ('L1', 'L2', 'L3')]
+    if bad_layer:
+        r.fail('SSOT 条目层级非法（只能 L1/L2/L3）：%s' % '、'.join(bad_layer))
+    else:
+        r.ok('SSOT 条目 %d 条，层级齐备（L1 %d / L2 %d / L3 %d）' % (
+            len(ssot['entries']),
+            sum(1 for e in ssot['entries'] if e['layer'] == 'L1'),
+            sum(1 for e in ssot['entries'] if e['layer'] == 'L2'),
+            sum(1 for e in ssot['entries'] if e['layer'] == 'L3')))
+    # 版本必须与 gate 一致
+    gm = re.search(r'^GATE_VERSION\s*=\s*"([^"]+)"', gate, re.M)
+    if gm and gm.group(1) == str(ssot.get('version')):
+        r.ok('SSOT 版本与 gate 一致：%s' % ssot['version'])
+    else:
+        r.fail('SSOT 版本 %s ≠ gate GATE_VERSION %s' % (ssot.get('version'), gm.group(1) if gm else '缺'))
+    miss_doc = [e['id'] for e in ssot['entries']
+                if e.get('doc') and e['doc'] != '-' and e['doc'] not in skill]
+    miss_tpl = [e['id'] for e in ssot['entries']
+                if e.get('tpl') and e['tpl'] != '-' and e['tpl'] not in tpl]
+    miss_gate = [e['id'] for e in ssot['entries']
+                 if e.get('gate') and e['gate'] != '-' and e['gate'] not in gate
+                 and e['gate'] not in gate_all_txt]
+    for tag, ids, where in (('SKILL.md', miss_doc, '文档锚点'), ('模板', miss_tpl, '模板锚点'),
+                            ('gate', miss_gate, '实现锚点')):
+        if ids:
+            r.fail('SSOT 条目在 %s 中找不到%s：%s（规则丢失或改了措辞没同步）'
+                   % (tag, where, '、'.join(ids)))
+        else:
+            r.ok('SSOT 全部条目的%s都能在 %s 里找到' % (where, tag))
+    # spec/ 下的契约应能从已安装的包入口/参考材料中找到，而不必塞进 SKILL 正文。
+    specdir = os.path.join(ROOT, 'spec')
+    discovery_docs = package_discovery_documents()
+    discovery_text = '\n'.join(discovery_docs.values())
+    orphan = [fn for fn in sorted(os.listdir(specdir))
+              if fn != 'README.md' and ('spec/' + fn) not in discovery_text]
+    if orphan:
+        r.fail('spec/ 下文件未从包入口/参考资料发现（写了也没人读）：%s' % '、'.join(orphan))
+    else:
+        r.ok('spec/ 下文件均可从包入口/参考资料发现')
+
+
+def check_tools(r):
+    """⑦ 工具随技能发布（契约 V3 / 血证 H17）：
+    ① CLI 从可达包文档引用，包内支持模块沿真实静态 import 关系可发现；拒绝不存在的脚本引用和真正孤立的模块；
+    ② 凡是 import 了 gate_lecture 的工具，必须声明 `GATE_API`（+可选 `GATE_GLOBALS_SET`），
+       且声明的符号在 gate 里确实存在——判据改动动了内部结构时，这里立刻报红，
+       而不是等下一个会话用错工具（`fix_lineno.py` 会**写回 NOTES 的行号**）。"""
+    gate_src = read('scripts/gate_lecture.py') or ''
+    tools = [fn for fn in sorted(os.listdir(HERE)) if fn.endswith('.py') and not fn.startswith('test_')]
+    discovery = analyze_script_discoverability(ROOT, package_discovery_documents())
+    if discovery['missing']:
+        r.fail('包内文档引用了不存在的脚本：%s' % '、'.join(discovery['missing']))
+    else:
+        r.ok('包内文档中的 scripts/*.py 引用均有实际文件')
+    if discovery['parse_errors']:
+        r.fail('入口工具的本地 import 无法静态检查：%s' % '；'.join(discovery['parse_errors']))
+    if discovery['orphans']:
+        r.fail('scripts/ 下有工具未从可达包文档入口或真实 import 到达：%s'
+               % '、'.join(discovery['orphans']))
+    else:
+        r.ok('scripts/ 下 %d 个工具可从包内入口或其本地 imports 到达' % len(tools))
+
+    sys.path.insert(0, HERE)
+    import gate_lecture as G          # noqa: E402
+    bad = []
+    for fn in tools:
+        src = read('scripts/' + fn) or ''
+        if 'import gate_lecture' not in src:
+            continue
+        api = re.search(r'^GATE_API\s*=\s*\[(.*?)\]', src, re.M | re.S)
+        glb = re.search(r'^GATE_GLOBALS_SET\s*=\s*\[(.*?)\]', src, re.M | re.S)
+        if not api:
+            bad.append('%s 用了 gate 却没声明 GATE_API' % fn)
+            continue
+        names = re.findall(r"'([A-Za-z_][A-Za-z0-9_]*)'", api.group(1))
+        miss = [n for n in names if not hasattr(G, n)]
+        if glb:
+            for n in re.findall(r"'([A-Za-z_][A-Za-z0-9_]*)'", glb.group(1)):
+                if not re.search(r'^\s*global\s+%s\b' % n, gate_src, re.M):
+                    miss.append(n + '(缺 global 声明)')
+        if miss:
+            bad.append('%s → gate 里找不到 %s' % (fn, '、'.join(miss)))
+    if bad:
+        r.fail('工具依赖的 gate 符号对不上（判据改动动了内部结构）：%s' % '；'.join(bad))
+    else:
+        r.ok('声明了 GATE_API 的工具，其依赖符号在 gate 中全部存在')
+
+    # 跨工具耦合同样不许悄悄断：用了 `import sync_gate_result` 的工具必须声明 `SYNC_API`（2.30 新增）。
+    # 由来：`batch_build --check` 要靠 sync_gate_result 的盖章块识别常量把 ⑯ 的机器段排除在比对之外——
+    # 那三个常量一旦改名，`--check` 会开始报几十行假差异（"终稿重建不出来"的误导）。
+    import sync_gate_result as SGR    # noqa: E402
+    sync_bad = []
+    for fn in tools:
+        if fn == 'skill_selfcheck.py':      # 检查器自己只用 hasattr 做通用存在性校验，不消费具体符号
+            continue
+        src = read('scripts/' + fn) or ''
+        if 'import sync_gate_result' not in src:
+            continue
+        api = re.search(r'^SYNC_API\s*=\s*\[(.*?)\]', src, re.M | re.S)
+        if not api:
+            sync_bad.append('%s 用了 sync_gate_result 却没声明 SYNC_API' % fn)
+            continue
+        miss = [n for n in re.findall(r"'([A-Za-z_][A-Za-z0-9_]*)'", api.group(1))
+                if not hasattr(SGR, n)]
+        if miss:
+            sync_bad.append('%s → sync_gate_result 里找不到 %s' % (fn, '、'.join(miss)))
+    if sync_bad:
+        r.fail('工具依赖的 sync_gate_result 符号对不上：%s' % '；'.join(sync_bad))
+    else:
+        r.ok('声明了 SYNC_API 的工具，其依赖符号在 sync_gate_result 中全部存在')
+
+
+def check_safe_edit(r):
+    """⑧ safe_edit 护栏负向自测（血证 H14）：用当初**真实失败的做法**验证它会被拒绝。
+    这是"护栏本身也要被验证"的落地——否则它就是一句口号。合成用例，不依赖宿主项目。"""
+    sys.path.insert(0, HERE)
+    import safe_edit as S             # noqa: E402
+    base = ['# 标题', '```java', 'int a = 1;', '```', '尾部']
+
+    # ① 跨围栏区间替换成"纯内容"——H14 的原始错误做法，必须被拒
+    try:
+        S.safe_replace_range(list(base), 2, 4, 'int a = 1;')
+        r.fail('safe_edit 护栏失效：跨围栏区间被替换成纯内容时未拒绝（血证 H14 会重演）')
+    except SystemExit:
+        r.ok('safe_edit 护栏生效：跨围栏替换成纯内容 → 拒绝执行')
+
+    # ② 替换体写回围栏 → 必须通过，且结果与原内容一致
+    try:
+        got = list(base)
+        S.safe_replace_range(got, 2, 4, '```java\nint a = 1;\n```')
+        if got == base:
+            r.ok('safe_edit 正确替换体：带围栏的替换体通过且内容不变')
+        else:
+            r.fail('safe_edit 替换结果与预期不一致：%r' % (got,))
+    except SystemExit as e:
+        r.fail('safe_edit 误拒了带围栏的正确替换体：%s' % str(e)[:80])
+
+    # ③ 锚点不唯一 → 必须拒绝（防止插错位置）
+    try:
+        S.insert_before(['a', 'a'], 'a', 'x')
+        r.fail('safe_edit insert_before 锚点不唯一时未拒绝')
+    except SystemExit:
+        r.ok('safe_edit insert_before：锚点命中 ≠1 处 → 拒绝执行')
+
+    # ④ insert_before 不得改动任何旧行（insert-only 的核心承诺）
+    got = list(base)
+    S.insert_before(got, '尾部', 'X\nY')
+    if got[:4] == base[:4] and got.count('尾部') == 1:
+        r.ok('safe_edit insert_before：只插入、旧行逐字节不变')
+    else:
+        r.fail('safe_edit insert_before 改动了旧行：%r' % (got,))
+
+    # ⑤ --check 的体检函数必须能报出未闭合围栏
+    issues, _ev = S.scan_fences(['```java', 'int a = 1;'])
+    if issues:
+        r.ok('safe_edit --check：未闭合围栏能被报出（%s…）' % issues[0][:28])
+    else:
+        r.fail('safe_edit --check 漏报未闭合围栏')
+
+    # ⑥ 整节重写（H19）：引入**更多**代码块必须通过——这正是 safe_replace_range 做不到的事
+    body = '# 标题2\n```java\nint a = 1;\n```\n中间\n```java\nint b = 2;\n```\n尾部'
+    try:
+        got = list(base)
+        S.safe_replace_section(got, 1, 5, body)
+        if len([l for l in got if l.startswith('```')]) == 4 and got[0] == '# 标题2':
+            r.ok('safe_edit 整节重写：代码块 1 个 → 2 个仍通过（H19 的核心诉求）')
+        else:
+            r.fail('safe_edit 整节重写结果不符预期：%r' % (got,))
+    except SystemExit as e:
+        r.fail('safe_edit 整节重写误拒了合法替换：%s' % str(e)[:80])
+
+    # ⑦ 整节重写 S1：区间起点落在代码块内 → 必须拒绝（否则会截断代码块）
+    try:
+        S.safe_replace_section(list(base), 3, 5, '纯文本')
+        r.fail('safe_edit 整节重写未拒绝"起点在块内"的区间（S1 失效）')
+    except SystemExit:
+        r.ok('safe_edit 整节重写 S1：区间起点在代码块内 → 拒绝执行')
+
+    # ⑧ 整节重写 S3：替换体围栏不闭合 → 必须拒绝
+    try:
+        S.safe_replace_section(list(base), 1, 5, '# 标题2\n```java\nint a = 1;')
+        r.fail('safe_edit 整节重写未拒绝"替换体围栏不闭合"（S3 失效，H14 会重演）')
+    except SystemExit:
+        r.ok('safe_edit 整节重写 S3：替换体围栏不闭合 → 拒绝执行')
+
+
+def check_vib_depth(r):
+    """⑪ ⑫ 内容深度判据（S12 / H20）的正向 + 负向自测——**判据本身也要被验证**，否则它只是一句口号。
+    合成用例，不依赖宿主项目；三种形态：旧八条（必须被认出） / 现行八条合格样本（不许误拒） / 空壳（必须拦下）。"""
+    sys.path.insert(0, HERE)
+    import gate_lecture as G          # noqa: E402
+
+    def seg(items, item5="", item6=""):
+        out = ['## ⑫ Vibecoding 视角']
+        for i, t in enumerate(items, 1):
+            out.append('#### %d. %s' % (i, t))
+            body = item5 if i == 5 else (item6 if i == 6 else '')
+            out.append(body or '正文一\n正文二\n正文三')
+        return '\n'.join(out)
+
+    NEW8 = ['真实需求（`开发任务`）', '现状勘察（`AI 协作过程`）', '方案比较（`开发任务`）',
+            '增量实现（`开发任务`）', '可直接使用的提示词（`AI 协作过程`）',
+            'AI 产出后的审查（`AI 协作过程`）', '验证反馈循环（`AI 协作过程`）', '最终沉淀（`开发任务`）']
+    OLD8 = ['真实需求（开发任务）', '依赖（上游接口与既有代码）', '要新增的类（按依赖顺序）',
+            '核心约束（不可动摇的红线）', '给 AI 的提示词模板（八段式）', '迭代过程（三轮修正）',
+            '踩过的坑（四个）', '最终沉淀（开发任务）']
+    PROMPT = ('【任务】做一件事\n【依赖】A / B\n【要新增的类】C\n【核心约束】D\n'
+              '【注释要求】E\n【验收标准】F\n【禁止】G\n【输出格式】H')
+    AUDIT = ('| # | 审查项 | 怎么查 |\n|---|---|---|\n'
+             + '\n'.join('| %d | x | grep 看什么 |' % i for i in range(1, 7)))
+
+    v = G.vib_depth(seg(OLD8, PROMPT, AUDIT))
+    if v['miss_class']:
+        r.ok('⑫ 深度判据：旧八条形态被认出缺 %d 类语义（%s…）'
+             % (len(v['miss_class']), '、'.join(v['miss_class'][:3])))
+    else:
+        r.fail('⑫ 深度判据失效：旧八条（依赖 / 要新增的类 / 迭代过程…）竟被认作覆盖全八类')
+
+    v = G.vib_depth(seg(NEW8, PROMPT + '\n**设计要点**：为什么这么写。', AUDIT))
+    if not v['miss_class'] and v['labels'] == 8 and v['design'] and v['audit_items'] >= 6:
+        r.ok('⑫ 深度判据：现行八条 + 八段 + 设计要点 + 6 项审查 → 四项全过（不误拒合格样本）')
+    else:
+        r.fail('⑫ 深度判据误拒了合格样本：%r' % (
+            {k: v[k] for k in ('miss_class', 'labels', 'design', 'audit_items')},))
+
+    v = G.vib_depth(seg(NEW8))
+    if v['labels'] == 0 and not v['design'] and v['audit_items'] == 0:
+        r.ok('⑫ 深度判据：只有标题、无提示词 / 无设计要点 / 无审查清单 → 三项全红（空壳拦得住）')
+    else:
+        r.fail('⑫ 深度判据漏过空壳 ⑫：labels=%d design=%s audit=%d'
+               % (v['labels'], v['design'], v['audit_items']))
+
+    # 中式标签写法（`任务：`）同样要认——只认 `【任务】` 就是"把形式当实质"（实测误报来源）
+    v = G.vib_depth(seg(NEW8, '任务：做一件事\n依赖：A / B\n要新增的类：C\n核心约束：D\n'
+                                '注释要求：E\n验收标准：F\n禁止：G\n输出格式：H\n设计要点：为什么这么写。', AUDIT))
+    if v['labels'] >= 6 and v['design']:
+        r.ok('⑫ 深度判据：中式标签（`任务：` / `验收标准：`）写法同样被认（%d 段）' % v['labels'])
+    else:
+        r.fail('⑫ 深度判据只认 `【…】` 一种写法：中式标签被误判（labels=%d design=%s）'
+               % (v['labels'], v['design']))
+
+    # ⑤ 边界钉桩（**故意断言"机械判据拦不住空话"**）：
+    #    判据只能判"有没有"，判不了"好不好"；判据越形式化，越容易被形式满足。
+    #    这份"空话版"满足全部四项机械判据 → FAIL 档放行，**这是已知盲区，必须让读者知道，
+    #    否则他会误信绿灯**；与此同时报告档必须报出 ≥8 条缺口（下限层+报告层的分工就在这里）。
+    #    将来若判据收紧到能拦住它，这条会失败 → 提示"盲区已收窄，请同步文档与存量工单"。
+    VACUOUS = ('【任务】实现功能\n【依赖】用现有的\n【要新增的类】几个类\n【核心约束】注意质量\n'
+               '【注释要求】写注释\n【验收标准】测试通过\n【禁止】不要出错\n【输出格式】给我代码\n'
+               '**设计要点**：这样写更好，因为更清晰。')
+    VAC_AUDIT = ('| # | 审查项 | 怎么查 |\n|---|---|---|\n'
+                 + '\n'.join('| %d | 检查一下 | grep 看看 |' % i for i in range(1, 7)))
+    v = G.vib_depth(seg(NEW8, VACUOUS, VAC_AUDIT))
+    passes_fail = ((not v['miss_class']) and v['labels'] > 0
+                   and v['design'] and v['audit_items'] >= 6)
+    gaps = sum([v['r2_pitfall'] < 3, (not v['r2_prompt'] and v['r2_items'] < 5),
+                not v['r3_table'], not v['r3_reject'], v['r4_steps'] < 6, not v['r4_bound'],
+                v['r5_rounds'] < 3, not v['r6_method'], v['r7_rounds'] < 1, v['r8_rules'] < 5])
+    if passes_fail and gaps >= 8:
+        r.ok('⑫ 深度判据的**已知盲区已钉桩**：空话版仍过 FAIL 档（质量主体在人工审读），'
+             '但报告档报出 %d 条缺口兜住' % gaps)
+    elif not passes_fail:
+        r.fail('⑫ 深度判据已收紧到能拦住"空话版"——盲区收窄了（好消息）！'
+               '请同步 SKILL §6.2.1、操作手册 §9 与存量工单')
+    else:
+        r.fail('⑫ 报告档漏报过多：空话版只被抓出 %d 条缺口（应 ≥8）' % gaps)
+
+
+def check_new_batch(r):
+    """⑨ 新批次脚手架与模板**同源**（契约 V4）：骨架的节标题必须来自模板，且结构项由构造保证。
+    这既是新工具的验收测试，也是"模板改了脚手架没跟"的报警器（血证 H9 那类"两套节数"的病）。"""
+    sys.path.insert(0, HERE)
+    try:
+        import new_batch as N              # noqa: E402
+    except Exception as e:                 # pragma: no cover
+        r.fail('scripts/new_batch.py 无法导入：%s' % e)
+        return
+    tpl = read('references/批次讲解全文模板.md') or ''
+    tpl_secs = [m.group(1).strip() for m in re.finditer(r'^###\s+(.+)$', tpl, re.M)]
+    try:
+        skel = N.skeleton_lines(notes=[])
+    except SystemExit as e:
+        r.fail('new_batch 生成骨架时中止：%s' % e)
+        return
+    skel_secs = [l[3:].strip() for l in skel if re.match(r'^## ', l)]
+    if skel_secs != tpl_secs:
+        r.fail('骨架节标题与模板不一致：模板 %d 个 / 骨架 %d 个（模板改了，脚手架没跟）'
+               % (len(tpl_secs), len(skel_secs)))
+    else:
+        r.ok('骨架 %d 节与模板 `### ` 节标题逐一同源（①~⑯ + 索引）' % len(skel_secs))
+    text = '\n'.join(skel)
+    m12 = re.search(r'^## ' + CIRCLED[11] + r'\s', text, re.M)
+    m13 = re.search(r'^## ' + CIRCLED[12] + r'\s', text, re.M)
+    seg12 = text[m12.end(): m13.start() if m13 else len(text)]
+    for tag, cond in (('批级 ⑦.5', '#### ⑦.5' in text),
+                      ('⑫ 八条 = 8', len(re.findall(r'^#### \d+\.', seg12, re.M)) == 8),
+                      ('⑫ 八段提示词 = 8', len(re.findall(r'^【[^】]+】', seg12, re.M)) == 8)):
+        (r.ok if cond else r.fail)('骨架 %s' % tag if cond else '骨架缺 %s' % tag)
+
+    # 件内顺序必须与模板一致（2.30 修复 · 批次49 实录）：三段开场 → 源码块 → 逐行要点表。
+    # 生成骨架的 `plan_section` 曾把槽位标记/空围栏排在三段开场**之前**，模型照着写 → 整批 ⑥ 的
+    # "代码块前的讲解"全跑到代码块后面。判据 = **相对顺序**（模板里没有槽位标记，故不参与比较）。
+    ANCHORS = (r'^\*\*本文件要解决的一个问题\*\*', r'^\*\*白话开场\*\*',
+               r'^\*\*构造方式与手法\*\*', r'^```', r'^\*\*逐行要点表\*\*')
+
+    def _item_marks(txt):
+        m = re.search(r'^#### 6\.1.*?(?=^#### 6\.2|\Z)', txt or '', re.M | re.S)
+        seg = m.group(0) if m else ''
+        marks = []
+        for pat in ANCHORS:
+            mm = re.search(pat, seg, re.M)
+            marks.append(mm.start() if mm else None)
+        slot = re.search(r'<!--\s*src-slot', seg)
+        return marks, (slot.start() if slot else None)
+
+    tpl_marks, _tpl_slot = _item_marks(tpl)
+    skel_marks, skel_slot, mini = None, None, tempfile.mkdtemp(prefix='plan_order_')
+    try:
+        os.makedirs(os.path.join(mini, 'mod/src/main/java/demo'))
+        io.open(os.path.join(mini, 'mod/src/main/java/demo/Foo.java'), 'w', encoding='utf-8',
+                newline='').write('package demo;\n\nclass Foo {\n}\n')
+        _lines = list(N.skeleton_lines(notes=[]))
+        N.plan_section(_lines, {'blocks': [{'src': 'mod/src/main/java/demo/Foo.java', 'seg': '6.1',
+                                            'anchor': '#### 6.1 `Foo`'}]}, mini)
+        skel_marks, skel_slot = _item_marks('\n'.join(_lines))
+    except Exception as exc:                              # pragma: no cover
+        r.fail('plan_section 件内顺序自测跑不起来：%s' % exc)
+    finally:
+        shutil.rmtree(mini, ignore_errors=True)
+    asc = lambda ms: None not in ms and ms == sorted(ms)   # noqa: E731
+    slot_ok = (skel_slot is not None and skel_marks[2] is not None
+               and skel_marks[2] < skel_slot < skel_marks[3])
+    if asc(tpl_marks) and asc(skel_marks) and slot_ok:
+        r.ok('件内顺序与模板同源：三段开场 → 槽位/源码块 → 逐行要点表（批次49 的错序不会复发）')
+    else:
+        r.fail('件内顺序被改坏：模板 %s ｜ 骨架 %s（槽位应在第三段开场与源码块之间）'
+               % (tpl_marks, skel_marks))
+
+
+def check_inject_source(r):
+    """⑩ 源码块注入器端到端自测（H17/H18 的主力工具）：在临时目录里造一个迷你仓库 + 讲解 + plan，
+    验证 ① 注入后每行带**真实行号**且逐字来自源文件 ② 源文件不存在时**拒绝写盘**（文件保持原样）。"""
+    tool = os.path.join(HERE, 'inject_source.py')
+    tmp = tempfile.mkdtemp(prefix='inj_selfcheck_')
+    try:
+        pkg = os.path.join(tmp, 'mod', 'src', 'main', 'java', 'demo')
+        os.makedirs(pkg)
+        src_rel = 'mod/src/main/java/demo/Foo.java'
+        io.open(os.path.join(tmp, src_rel), 'w', encoding='utf-8', newline='').write(
+            'package demo;\n\npublic class Foo {\n    public void run() {\n        int a = 1;\n    }\n}\n')
+        lec = os.path.join(tmp, 'batch.md')
+        io.open(lec, 'w', encoding='utf-8', newline='').write(
+            '# 批次\n\n### 6.1 Foo\n\n```java\n占位\n```\n\n尾注\n')
+        plan = os.path.join(tmp, 'plan.json')
+        io.open(plan, 'w', encoding='utf-8').write(json.dumps({
+            "blocks": [{"anchor": "6.1 Foo", "src": src_rel, "start": 3, "end": 5,
+                        "anno": {"4": "唯一入口方法"}}]}))
+        p = subprocess.run([sys.executable, tool, lec, plan, '--src', tmp],
+                           capture_output=True, text=True,
+                           encoding='utf-8', errors='replace')
+        text = io.open(lec, encoding='utf-8').read()
+        ok = (p.returncode == 0 and 'public class Foo {  // :L3' in text
+              and '←教材：唯一入口方法' in text and 'public void run()' in text)
+        (r.ok if ok else r.fail)('注入器：逐字取码 + 真实行号 + `←教材：` 注（rc=%s）' % p.returncode
+                                if ok else '注入器端到端失败 rc=%s\n     %s' % (p.returncode, (p.stderr or '')[:300]))
+
+        before = io.open(lec, encoding='utf-8').read()
+        io.open(plan, 'w', encoding='utf-8').write(json.dumps({
+            "blocks": [{"anchor": "6.1 Foo", "src": 'no/such/File.java', "start": 1, "end": 3}]}))
+        p2 = subprocess.run([sys.executable, tool, lec, plan, '--src', tmp],
+                            capture_output=True, text=True,
+                            encoding='utf-8', errors='replace')
+        unchanged = io.open(lec, encoding='utf-8').read() == before
+        (r.ok if (p2.returncode != 0 and unchanged) else r.fail)(
+            '注入器：源文件不存在 → 拒绝写盘（rc=%s，文件未被改动=%s）' % (p2.returncode, unchanged)
+            if (p2.returncode != 0 and unchanged) else
+            '注入器护栏失效：rc=%s，文件未被改动=%s' % (p2.returncode, unchanged))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def check_reverse_fallback(r):
+    """⑫ ② 反向完整度的「★ 标题链兜底」自测（判据 2.13 / 血证 H23）。
+
+    **为什么这条必须有**：② 原实现只认「块自身含类声明」，而 ⑥ 要求 ★ 类**按职责段拆讲**——
+    拆分后没有任何单块含类声明 → ② 静默跳过、打印「0 个★类」并 PASS。**真空通过**最难被发现，
+    因为它长得跟真通过一模一样。所以这里用合成用例把它钉死：
+      正例 = 段拆块（无类声明）必须被算出覆盖率、且缺行必须被报出；
+      反例 = 若哪天有人把兜底删掉（rows 变空），本自检必须 FAIL 而不是继续绿。
+    另外钉一条"不许误拒"：整类逐字贴全时覆盖率必须是 100%。
+    """
+    sys.path.insert(0, HERE)
+    import gate_lecture as G          # noqa: E402
+    import tempfile
+    import os as _os
+
+    SRC = ('package demo;\n'
+           'public class Foo {\n'
+           '    private int a;\n'
+           '    private int b;\n'
+           '    public int sum() {\n'
+           '        return a + b;\n'
+           '    }\n'
+           '    public int diff() {\n'
+           '        return a - b;\n'
+           '    }\n'
+           '}\n')
+    tmp = tempfile.mkdtemp(prefix="gate_rev_")
+    p = _os.path.join(tmp, "Foo.java")
+    open(p, "w", encoding="utf-8").write(SRC)
+    by_class = {"Foo": [p]}
+    saved = (getattr(G, "ROOT", None), G.SNAPSHOT, G.SNAP_TAR, G.SNAP_UNION)
+    G.ROOT, G.SNAPSHOT, G.SNAP_TAR, G.SNAP_UNION = tmp, None, None, None
+    try:
+        # —— 正例：段拆块（块内没有类声明），★ 只在标题上
+        bl = ['    public int sum() {', '        return a + b;', '    }']
+        blocks = [(10, "java", bl, "### 6.1 Foo★（按职责段拆讲）", "## ⑥ 逐件讲解",
+                   "Foo", ["## ⑥ 逐件讲解"], "")]
+        rows = G.check_reverse(blocks, [], by_class)
+        if len(rows) == 1 and rows[0]["cls"] == "Foo" and rows[0]["cov"] < 0.995 and rows[0]["miss"] > 0:
+            r.ok('② 兜底生效：★ 类按职责段拆讲（块内无类声明）时仍被算出覆盖率 '
+                 '（真实缺 %d 行，cov=%.2f）' % (rows[0]["miss"], rows[0]["cov"]))
+        elif not rows:
+            r.fail('② 又回到「真空通过」：★ 块没有类声明时一个类都没核验（血证 H23 复发）——'
+                   '段拆讲是 ⑥ 要求的写法，这种块必须能归属到 ★ 标题里的类')
+        else:
+            r.fail('② 兜底结果不符预期：%r' % (rows[0],))
+
+        # —— 钉桩反例：整类逐字贴全时，覆盖率必须 100%（兜底不许把"贴全了"判成缺行）
+        bl2 = [l for l in SRC.split("\n") if l.strip()]
+        blocks2 = [(10, "java", bl2, "### 6.1 Foo★（整文件）", "## ⑥ 逐件讲解",
+                    "Foo", ["## ⑥ 逐件讲解"], "")]
+        rows2 = G.check_reverse(blocks2, [], by_class)
+        if len(rows2) == 1 and rows2[0]["miss"] == 0 and rows2[0]["cov"] == 1.0:
+            r.ok('② 不误拒：★ 类整文件逐字贴全 → 覆盖 100%（兜底没把"贴全"判成缺行）')
+        else:
+            r.fail('② 误拒了整文件贴全的 ★ 类：%r' % (rows2[0] if rows2 else None,))
+
+        # —— 同类去重：同一个 ★ 类被拆成多个段块时，只出一条记录（否则"3 个★类"会被报成"15 个"）
+        blocks3 = [(10, "java", bl, "### 6.1 Foo★（段1）", "## ⑥ 逐件讲解", "Foo", ["## ⑥ 逐件讲解"], ""),
+                   (40, "java", ['    public int diff() {', '        return a - b;', '    }'],
+                    "### 6.1 Foo★（段2）", "## ⑥ 逐件讲解", "Foo", ["## ⑥ 逐件讲解"], "")]
+        rows3 = G.check_reverse(blocks3, [], by_class)
+        if len(rows3) == 1:
+            r.ok('② 同类去重：同一 ★ 类的 2 个段块只出 1 条记录（★类数不再被段数放大）')
+        else:
+            r.fail('② 同类没去重：2 个段块出了 %d 条记录（"N 个★类"会被段数放大）' % len(rows3))
+    finally:
+        G.ROOT, G.SNAPSHOT, G.SNAP_TAR, G.SNAP_UNION = saved
+        import shutil
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def check_usage_boundary(r):
+    """⑬ ⑤ 的「件段不得越过一级节标题」自测（判据 2.14 / 血证 H24）。
+
+    **为什么钉它**：原实现里"最后一个 6.x 件"的段一直延伸到文件末尾，于是 ⑨ No-Framework 里那段
+    手写的 `interface Scorer { … }` 骨架被算进那个件 → 它凭空多出"抽象件"身份、被要求写【怎么接】。
+    这种误判**看不出来**：人只会觉得"这个件确实有接口啊"，然后去补一个语义上不该有的小节。
+    """
+    sys.path.insert(0, HERE)
+    import gate_lecture as G          # noqa: E402
+
+    head = ["## ⑥ 逐件讲解", "### 6.1 Foo —— 唯一的件（10 行）", "正文一", "正文二",
+            "**【怎么用】调用现场**", "正文三", "**【上下游】**", "正文四", "---",
+            "## ⑨ No-Framework：不用框架怎么手写", "", "```java",
+            "interface Scorer { List<Score> score(String question); }", "```",
+            "", "**【怎么接】** 写在后面一节里，不该算到 6.1 头上"]
+    items, _ext = G.check_usage(head)
+    if len(items) == 1 and items[0]["iface"] is False and items[0]["wire"] is False:
+        r.ok('⑤ 件段边界（2.14）：后面一级节里的 `interface` 骨架与【怎么接】不再算进末件 '
+             '（iface=False / wire=False，均由本节自己决定）')
+    else:
+        r.fail('⑤ 件段越界（H24 复发）：末件把后面小节的内容算进自己 → %r'
+               % ({k: items[0][k] for k in ("iface", "wire")} if items else items,))
+
+    # 反向钉桩：**本节内**真的有 interface 骨架时，必须仍然认出来（别把边界修成"永不判抽象"）
+    own = ["## ⑥ 逐件讲解", "### 6.1 Bar —— 真抽象件（10 行）", "正文一", "正文二", "```java",
+           "public interface Bar { void run(); }", "```", "**【怎么用】** 用法", "**【上下游】** 上下游",
+           "**【怎么接】** 实现与注册", "---", "## ⑦ 调用链"]
+    items2, _ = G.check_usage(own)
+    if len(items2) == 1 and items2[0]["iface"] is True and items2[0]["wire"] is True:
+        r.ok('⑤ 件段边界（2.14）：件内自己的 `interface` 骨架仍被认出（iface/wire 都为真）')
+    else:
+        r.fail('⑤ 边界修过头了：件内自带的 interface 没被认出 → %r'
+               % ({k: items2[0][k] for k in ("iface", "wire")} if items2 else items2,))
+
+
+def check_section_form(r):
+    """⑭ 一级节标题规范形态自测（判据 2.15 / 血证 H25）。
+
+    **为什么钉它**：⑫/⑯ 等节靠 `^## ⑫\\s` 这类带圈数字正则定位；带圈数字在部分落盘链路会**静默丢失**
+    （本文件自己就丢过两处：⑨ 与 ⑫，存活数周无人发现——这正是 H25 的原件）。标题变形后，
+    那一节的所有检查被整体跳过却照样打印 PASS。「找不到段」必须是 FAIL，不许静默跳过。
+    """
+    sys.path.insert(0, HERE)
+    import gate_lecture as G          # noqa: E402
+
+    # 正例：17 节规范标题全齐 → 不缺、不变形
+    good = ['# 批'] + ['## %s 节%d' % (c, i) for i, c in enumerate(G.CIRCLED16, 1)] + ['## 索引']
+    miss, deform, _heads = G.section_form_check(good)
+    if not miss and not deform:
+        r.ok('节标题形态：17 节规范标题全部命中（①~⑯ + 索引）')
+    else:
+        r.fail('节标题形态误拒规范标题：缺 %s / 变形 %s' % (miss, deform))
+
+    # 负例 1：⑫ 的带圈数字丢失（标题还在，首字符没了）→ 必须报缺失 ⑫
+    bad1 = ['# 批'] + ['## %s 节%d' % (c, i) for i, c in enumerate(G.CIRCLED16, 1) if c != '⑫'] \
+        + ['## Vibecoding 视角', '## 索引']
+    miss, deform, _heads = G.section_form_check(bad1)
+    if '⑫' in miss:
+        r.ok('节标题形态：⑫ 带圈数字丢失 → 报缺失（不再静默跳过该节）')
+    else:
+        r.fail('节标题形态漏报：⑫ 丢失却未报缺失（miss=%s deform=%s）' % (miss, deform))
+
+    # 负例 2：`##  ⑫`（## 后多一个空格）→ 宽松命中但规范形态不命中 → 必须报变形并带原文
+    bad2 = ['# 批'] + ['## %s 节%d' % (c, i) for i, c in enumerate(G.CIRCLED16, 1) if c != '⑫'] \
+        + ['##  ⑫ Vibecoding 视角', '## 索引']
+    miss, deform, _heads = G.section_form_check(bad2)
+    if any(c == '⑫' and '##  ⑫' in h for c, h in deform):
+        r.ok('节标题形态：`##  ⑫`（多余空格）→ 报变形并打印实际原文')
+    else:
+        r.fail('节标题形态漏报：`##  ⑫` 多余空格未报变形（miss=%s deform=%s）' % (miss, deform))
+
+    # 负例 3：缺索引节 → 必须报缺失「索引」
+    bad3 = ['# 批'] + ['## %s 节%d' % (c, i) for i, c in enumerate(G.CIRCLED16, 1)]
+    miss, deform, _heads = G.section_form_check(bad3)
+    if '索引' in miss:
+        r.ok('节标题形态：缺索引节 → 报缺失')
+    else:
+        r.fail('节标题形态漏报：索引节缺失未报（miss=%s）' % (miss,))
+
+
+def check_vib_retro(r):
+    """⑮ ⑫ 回顾语判据自测（2.16 / 血证 H26）：从零构建视角的机械兜底。
+
+    **为什么钉它**：⑫ 旧框架（"回顾性重构声明"）曾是模板原文、被照抄进 26 份批次；
+    新框架要求"从零构建视角"。这条判据管"时态"（自指禁令管"指称"）。
+    必须钉住两个边界：旧声明要命中；合规的"逆向重建"诚实声明**不许**误伤。"""
+    sys.path.insert(0, HERE)
+    import gate_lecture as G          # noqa: E402
+
+    # 正例：从零构建叙事 + 合规的逆向重建声明 → 不命中（"逆向重建"/"当时的"不在词表）
+    good = ['## ⑫ Vibecoding 视角（八条）', '',
+            '> 声明：本节开发过程为按最终代码逆向重建的叙事，而非声称这是当时的真实对话。',
+            '#### 1. 真实需求', '你接到一个工单：为结算组加定时对账。', '', '## ⑬ 验证证据']
+    st = G.check_structure(good, True)
+    if not st['retro']:
+        r.ok('⑫ 回顾语：从零构建叙事 + 合规逆向重建声明 → 不误报（逆向重建 / 当时的 不在词表）')
+    else:
+        r.fail('⑫ 回顾语误伤合规声明：%s' % (st['retro'],))
+
+    # 负例 1：旧框架声明 → 命中并给出词名与次数
+    bad1 = ['## ⑫ Vibecoding 视角', '> **回顾性重构声明**：本节的开发过程是回顾性重构。', '## ⑬ 验证证据']
+    st = G.check_structure(bad1, True)
+    if any(w == '回顾性重构' for w, _ in st['retro']):
+        r.ok('⑫ 回顾语：旧框架声明（回顾性重构）→ 命中 FAIL 档')
+    else:
+        r.fail('⑫ 回顾语漏报旧框架声明（回顾性重构）')
+
+    # 负例 2：典型回顾表述 → 命中
+    bad2 = ['## ⑫ Vibecoding 视角', '回看这一批，当时我们已经写完三件套。', '## ⑬ 验证证据']
+    st = G.check_structure(bad2, True)
+    hit = {w for w, _ in st['retro']}
+    if {'回看这一批', '当时我们', '已经写完'} <= hit:
+        r.ok('⑫ 回顾语：回看这一批 / 当时我们 / 已经写完 → 全部命中')
+    else:
+        r.fail('⑫ 回顾语漏报典型回顾表述（命中 %s）' % sorted(hit))
+
+
+def check_core_sections_sc(r):
+    """⑯ ⓪b 每批必含内容自测（2.17 / 血证 H26）：① 架构图 / ⑦.1 编号链 / ⑧ L0-L3。
+
+    口径全部经过全库实测校准（60 份批次）：① 命中 10 份、⑦.1 命中 44 份、⑧ 命中约 31 份——
+    命中即真缺（散文链/无图/无省略段），16 份编号链批次 0 误伤。"""
+    sys.path.insert(0, HERE)
+    import gate_lecture as G          # noqa: E402
+    import tempfile                   # noqa: E402
+
+    with tempfile.TemporaryDirectory() as td:
+        for name in ('AlphaService', 'BetaGateway', 'GammaClient'):
+            io.open(os.path.join(td, name + '.java'), 'w', encoding='utf-8').write(
+                'public class %s { void go(){} }\n' % name)
+        by_class, _ = G.index_sources(td)
+
+        DIA = ['## ① 全景', '```text', '┌─ AlphaService ─────────┐',
+               '│        │ go()          │', '│        ▼               │',
+               '│   BetaGateway ──► GammaClient │', '│        │               │',
+               '└────────┼───────────────┘', '         ▼ 出站', '```']
+        CHAIN = ['#### ⑦.1 调用链（编号列表带行号）', '',
+                 '1  入口.handle()', '2   → AlphaService.go()        AlphaService.java:1',
+                 '3     → BetaGateway.go()       BetaGateway.java:1',
+                 '4       → GammaClient.go()     GammaClient.java:1',
+                 '5     ← 返回                   BetaGateway.java:1',
+                 '6   → 渲染                     View.java:1', '', '#### ⑦.2 数据流']
+        DRILL = ['## ⑧ 穿透卡', '- **L0 源码证据**：x', '- **L1 机制拆解**：x',
+                 '- **L2 等价实现**：x', '**省略了什么生产边界**：分布式锁/持久化', '- **L3 设计取舍**：x']
+
+        good = DIA + ['## ⑦ 调用链'] + CHAIN + ['## ⑧ 穿透卡'] + DRILL[1:] + ['## ⑨ x']
+        c = G.check_core_sections(good, by_class, td)
+        if not any(c.values()):
+            r.ok('⓪b 合规批次（图 + 编号链 + L0-L3+省略段）→ 三项全过')
+        else:
+            r.fail('⓪b 误伤合规批次：%s' % ({k: v for k, v in c.items() if v},))
+
+        no_dia = ['## ① 全景', '```text', '本批有三个类，互相协作完成工作。', '```'] + good[10:]
+        c = G.check_core_sections(no_dia, by_class, td)
+        r.ok('① 无架构图 → sec1 命中（图 <5 行连接线）') if c['sec1'] else r.fail('① 无图未命中')
+
+        fake_dia = ['## ① 全景', '```text', '┌─ Service ──┐', '│    │       │',
+                    '│    ▼       │', '│  Mapper    │', '│    │       │',
+                    '└────┼───────┘', '     ▼', '  Controller', '```'] + good[10:]
+        c = G.check_core_sections(fake_dia, by_class, td)
+        r.ok('① 图内只有通用词（Service/Mapper/Controller）→ 标识符 <3 命中') if c['sec1'] and '标识符' in c['sec1'] \
+            else r.fail('① 空盒子通用词未命中')
+
+        prose_chain = ['## ① 全景'] + DIA[1:] + ['## ⑦ 调用链', '#### ⑦.1 调用链', '',
+                       '入口先调 AlphaService（AlphaService.java:1），再转给 BetaGateway（BetaGateway.java:1），'
+                       '随后是 GammaClient（GammaClient.java:1），最后渲染返回（View.java:1）。',
+                       '#### ⑦.2 数据流'] + ['## ⑧ 穿透卡'] + DRILL[1:] + ['## ⑨ x']
+        c = G.check_core_sections(prose_chain, by_class, td)
+        r.ok('⑦.1 散文式箭头链 → chain 命中（编号跳 <5）') if c['chain'] else r.fail('⑦.1 散文链未命中')
+
+        no_ln = ['## ① 全景'] + DIA[1:] + ['## ⑦ 调用链', '#### ⑦.1 调用链', '',
+                 '1  → AlphaService.go()', '2   → BetaGateway.go()', '3     → GammaClient.go()',
+                 '4       → 渲染', '5     ← 返回', '#### ⑦.2 数据流'] + ['## ⑧ 穿透卡'] + DRILL[1:] + ['## ⑨ x']
+        c = G.check_core_sections(no_ln, by_class, td)
+        r.ok('⑦.1 有编号跳但无行号 → chain 命中（带行号 <5）') if c['chain'] else r.fail('⑦.1 无行号未命中')
+
+        no_l2 = ['## ① 全景'] + DIA[1:] + ['## ⑦ 调用链'] + CHAIN + ['## ⑧ 穿透卡',
+                 '- **L0 源码证据**：x', '- **L1 机制拆解**：x', '- **L3 设计取舍**：x', '## ⑨ x']
+        c = G.check_core_sections(no_l2, by_class, td)
+        r.ok('⑧ 缺 L2 层级标签 → drill 命中') if c['drill'] and '层级标签' in c['drill'] else r.fail('⑧ 缺层级未命中')
+
+        no_omit = ['## ① 全景'] + DIA[1:] + ['## ⑦ 调用链'] + CHAIN + ['## ⑧ 穿透卡',
+                   '- **L0 源码证据**：x', '- **L1 机制拆解**：x', '- **L2 等价实现**：x',
+                   '- **L3 设计取舍**：x', '## ⑨ x']
+        c = G.check_core_sections(no_omit, by_class, td)
+        r.ok('⑧ 有 L0-L3 但无「省略了什么」段 → drill 命中') if c['drill'] and '省略' in c['drill'] \
+            else r.fail('⑧ 缺省略段未命中')
+
+        # ⑦.1 标题的另一种存量形态 `### 7.1`（无带圈数字）也要认得
+        alt = ['## ① 全景'] + DIA[1:] + ['## ⑦ 调用链'] + [
+            ('### 7.1 调用链' if l.startswith('#### ⑦.1') else l) for l in CHAIN] + ['## ⑧ 穿透卡'] + DRILL[1:] + ['## ⑨ x']
+        c = G.check_core_sections(alt, by_class, td)
+        r.ok('⑦.1 标题写成 `### 7.1`（存量形态）→ 不误报缺小节') if c['chain'] is None else r.fail('⑦.1 替代标题误报')
+
+
+def check_pedagogy_sc(r):
+    """⑰ ⓪c 教材自足与构造手法自测（2.18 / H26，报告档）：白话开场与构造/手法点名。"""
+    sys.path.insert(0, HERE)
+    import gate_lecture as G          # noqa: E402
+
+    # 白话开场：块前有中文开场行 → 不缺；块上方最近非空行无中文且非表格 → 缺
+    lines = ['## ⑥ 逐件讲解', '', '### 6.1 `XxxService`', '',
+             '**白话开场**：这段把上游的原始文本切成可检索的块，看完能答"切块边界怎么定"。', '',
+             '```java', 'class A {}', '```', '',
+             'plain english note, no intro sentence', '',
+             '```java', 'class B {}', '```']
+    import tempfile, os
+    with tempfile.TemporaryDirectory() as td:
+        p = os.path.join(td, 't.md')
+        io.open(p, 'w', encoding='utf-8').write('\n'.join(lines))
+        ls, blocks = G.parse_blocks(p)
+        ped = G.check_pedagogy(ls, blocks)
+        if ped['blocks_total'] == 2 and ped['blocks_no_intro'] == 1:
+            r.ok('⓪c 白话开场：有中文开场句的块不算缺、上方只有纯英文行的块算缺（1/2）')
+        else:
+            r.fail('⓪c 白话开场统计错：%s' % ped)
+
+        # 表格行紧邻代码块 = 表格本身就是说明，不算缺（口径防呆）
+        lines_t = ['## ⑥ 逐件讲解', '### 6.1 `A`', '| 行 | 讲解 |', '|---|---|', '| 1 | x |',
+                   '```java', 'class A {}', '```']
+        pt = os.path.join(td, 'tt.md')
+        io.open(pt, 'w', encoding='utf-8').write('\n'.join(lines_t))
+        lst, bt = G.parse_blocks(pt)
+        pedt = G.check_pedagogy(lst, bt)
+        if pedt['blocks_no_intro'] == 0:
+            r.ok('⓪c 白话开场：表格行紧邻代码块不算缺开场（表格本身就是说明）')
+        else:
+            r.fail('⓪c 表格行被误判缺开场：%s' % pedt)
+
+        # 构造方式/手法：6.x 件正文点名 → 不缺；缺则计数
+        lines2 = ['## ⑥ 逐件讲解', '### 6.1 `A`', '',
+                  '由 `BFactory` 在启动时 new 出来并注册进容器，生命周期为应用级单例。', '```java', 'class A {}', '```', '',
+                  '### 6.2 `B`', '', '逐行说明……（只讲每行在干什么）', '```java', 'class B {}', '```']
+        p2 = os.path.join(td, 't2.md')
+        io.open(p2, 'w', encoding='utf-8').write('\n'.join(lines2))
+        ls2, blocks2 = G.parse_blocks(p2)
+        ped2 = G.check_pedagogy(ls2, blocks2)
+        if ped2['items_total'] == 2 and ped2['items_no_construct'] == 1 and ped2['items_no_technique'] == 2:
+            r.ok('⓪c 构造/手法：点名构造方式的件不算缺（1/2 缺构造、2/2 缺手法）')
+        else:
+            r.fail('⓪c 构造/手法统计错：%s' % ped2)
+
+        # 件段越节保护：## ⑧ 里的"模式"字样不能算到 ⑥ 最后一个件头上
+        lines3 = ['## ⑥ 逐件讲解', '### 6.1 `A`', '', '只讲每行是什么。', '```java', 'class A {}', '```', '',
+                  '## ⑧ 穿透卡', '这一节讨论责任链模式与权衡。']
+        p3 = os.path.join(td, 't3.md')
+        io.open(p3, 'w', encoding='utf-8').write('\n'.join(lines3))
+        ls3, blocks3 = G.parse_blocks(p3)
+        ped3 = G.check_pedagogy(ls3, blocks3)
+        if ped3['items_total'] == 1 and ped3['items_no_technique'] == 1:
+            r.ok('⓪c 件段越节保护：⑧ 节的"模式"字样不算 ⑥ 件的手法（沿用 2.14 教训）')
+        else:
+            r.fail('⓪c 件段越节保护失效：%s' % ped3)
+
+
+
+def check_lecture_class_sc(r):
+    """⑱ 教材类文件判定自测（2.20）：封堵「没有 java 代码块就跳过结构判定」的真空通过。
+
+    为什么钉它：判据只在「能识别出对象」时才生效，于是**改变对象的语言或形态就能绕过它**（H23/H25 同族）；
+    实测：examples/黄金样例-python.md（无 java 块）曾被整体跳过结构判定并打印 PASS。"""
+    sys.path.insert(0, HERE)
+    import gate_lecture as G          # noqa: E402
+    C = G.CIRCLED16
+
+    java_blocks = [(0, 'java', ['public class A {'] + ['    int x%d = 1;' % i for i in range(6)] + ['}'], '', '', '', [], '')]
+    ok, why = G.is_lecture(['# x'], java_blocks)
+    if ok:
+        r.ok('教材判定：含 java 代码块 → 教材（老口径仍成立）')
+    else:
+        r.fail('教材判定漏报 java 批次：%s' % why)
+
+    ref = ['# 黄金样例（节选）', '',
+           '> **形态状态（2.20 复检）**：本文档是深度基准存档。',
+           '## ' + C[0] + ' 在系统全景中的位置']
+    ok2, why2 = G.is_lecture(ref, [])
+    if not ok2:
+        r.ok('教材判定：声明位写「形态状态」 → 参照物豁免（不误伤）')
+    else:
+        r.fail('教材判定误伤参照物（未豁免）：%s' % why2)
+
+    synth = ['# 阶段1 · 批次1', '', '> **本批一句话**：合成。', '> **源码依据**：commit `16984b9`。',
+             '', '## ' + C[0] + ' 在系统全景中的位置', '', '## ' + C[1] + ' 业务场景',
+             '', '## ' + C[2] + ' 文件清单', '', '#### 6.1 Foo —— 示例', '', '正文。']
+    ok3, why3 = G.is_lecture(synth, [])
+    if ok3:
+        r.ok('教材判定：无 java 块但教材标志 >=3 项 → 仍判教材（**真空通过已封堵**）')
+    else:
+        r.fail('教材判定漏报：无 java 块的教材类文件仍被当普通文档（%s）' % why3)
+
+    plain = ['# 能力账本', '', '## 1. 能力清单', '', '| a | b |', '|---|---|', '| 1 | 2 |']
+    ok4, why4 = G.is_lecture(plain, [])
+    if not ok4:
+        r.ok('教材判定：普通档案文档（无标志）→ 非教材（不误伤）')
+    else:
+        r.fail('教材判定误伤普通文档：%s' % why4)
+
+    head_hist = ['# 阶段1 · 批次1', '', '> **本批一句话**：。', '> **源码依据**：commit `16984b9`。',
+                 '', '> 若当前树已重写，见 ⑥ 的【历史版本示例】与「当前实现」小节。']
+    ok5, why5 = G.is_lecture(head_hist, java_blocks)
+    if ok5:
+        r.ok('教材判定：批头提到【历史版本示例】不误判为参照物（声明位才认）')
+    else:
+        r.fail('教材判定：批头的【历史版本示例】把批次误判成参照物（%s）' % why5)
+
+
+def check_sync_idempotent(r):
+    """⑳ `sync_gate_result.py` 实测块替换的幂等性（2.29 / BUG-S1）。
+
+    血证（2026-09-18 实测）：旧 `end` 只走一步——HEAD 行下一行恒是空行，循环立即退出，
+    于是**只替换了 HEAD 那一行**，旧表格与旧说明全部留下 → 每跑一次多堆一张表。
+    受害 11 批：批次37 堆到 11 张、批次33/1 各 3 张、批次9/10/34/35/36/38 各 2 张；
+    同一份 ⑯ 里并存 v2.24 / v2.25 / v2.28 三套互相矛盾的数字——正好违背本工具的存在理由。
+    本检查用一段**含两张叠表**的样本钉死：block_end 必须吃到最后一张表的说明行，且连做两次替换后
+    HEAD 只剩 1 个。
+    """
+    sys.path.insert(0, HERE)
+    import sync_gate_result as S      # noqa: E402
+    NOTE = ('> 本表由 `scripts/sync_gate_result.py` 从闸门实跑输出生成，'
+            '**不是复述旧结论**（血证 H15）；判据版本以本表首行的 v%s 为准。')
+    blocks = ['| # | 闸门组 | 实测值 | 结论 |', '|---|---|---|---|', '| ⓪ | 结构 | 旧 | 通过 |']
+    lines = ['## ⑯ 教材质量自检',
+             '**七组闸门实测**（判据 v2.24，`gate_lecture.py` 单条命令退出码 0）**：', '']
+    lines += blocks + ['', NOTE % '2.24', '']
+    lines += blocks + ['', NOTE % '2.21', '']
+    lines += ['**判据版本：v2.21**（本批按此版判据验收）', '', '## 索引节']
+    end = S.block_end(lines, 1)
+    if end != 13:
+        r.fail('⑳ block_end 未吃掉历史叠表：返回 %d（应为 13 = 第二张表的说明行）——'
+               '旧实现只吃到 HEAD 行 → 每跑一次多堆一张表（批次37 堆到 11 张）' % end)
+        return
+    r.ok('⑳ block_end 吃满历史叠表（HEAD + 2 张表 + 2 条说明 → 末行 :14）')
+    new = '**七组闸门实测**（判据 v2.99，`gate_lecture.py` 单条命令退出码 0）**：\n\n' \
+          + '\n'.join(blocks) + '\n\n' + NOTE % '2.99' + '\n'
+    for _ in range(2):
+        i = next((k for k, l in enumerate(lines) if S.MARK_RE.match(l)), None)
+        if i is None:
+            r.fail('⑳ 幂等自测中找不到 HEAD 行（替换把标题吃掉了）')
+            return
+        S.safe_replace_range(lines, i + 1, S.block_end(lines, i) + 1, new)
+    heads = sum(1 for l in lines if S.MARK_RE.match(l))
+    stale = sum(1 for l in lines if S.NOTE_RE.match(l.strip()))
+    if heads == 1 and stale == 1:
+        r.ok('⑳ 连做两次替换后 HEAD=1 / 说明行=1（幂等成立，不再堆表）')
+    else:
+        r.fail('⑳ 幂等失败：HEAD=%d / 说明行=%d（都应为 1）——旧表会一直堆下去' % (heads, stale))
+
+
+def check_record_shape_sc(r):
+    """⑲ 记录类形态自测（2.21）：整理批 / 进行中记录既不按 17 节判，也不能没人管。"""
+    sys.path.insert(0, HERE)
+    import gate_lecture as G          # noqa: E402
+    Cc = G.CIRCLED16
+
+    ok, why = G.is_record(["# x"], "批次0-整理批.md")
+    if ok:
+        r.ok('记录类识别：文件名含「整理批」→ 记录类')
+    else:
+        r.fail('记录类识别漏报：%s' % why)
+
+    good = ['# 整理批', '', '> 状态：进行中（2026-09-17）', '', '## 未完成项',
+            '', '1. 补齐旧批次的回链', '2. 回写能力账本', '', '- [ ] 跑一次全量闸门']
+    b1 = G.check_record_shape(good)
+    if not b1:
+        r.ok('记录类形态：有状态行 + 未完成清单 → 0 违规')
+    else:
+        r.fail('记录类形态误报合规文件：%s' % b1)
+
+    b2 = G.check_record_shape(['# 草稿', '', '正文。'])
+    h = " ".join(b2)
+    if "R1" in h and "R2" in h:
+        r.ok('记录类形态：无状态行 + 无清单 → R1/R2 均命中')
+    else:
+        r.fail('记录类形态漏报 R1/R2：%s' % b2)
+
+    fake = (['# 批次1', '', '> 状态：已完成']
+            + ['## ' + Cc[i] + ' 节' for i in range(3)] + ['#### 6.1 Foo —— 示例', '', '正文。'])
+    b3 = G.check_record_shape(fake)
+    if any(x.startswith("R3") for x in b3):
+        r.ok('记录类形态：带成品批迹且不写未完成/草稿 → R3 命中')
+    else:
+        r.fail('记录类形态：伪装成品未命中 R3：%s' % b3)
+
+    vs = G.declared_at_least(['> 判据版本：v2.21'], G.RECORD_FAIL_SINCE)
+    vr = G.declared_at_least(['> 无版本声明'], G.RECORD_FAIL_SINCE)
+    if vs and not vr:
+        r.ok('记录类档位：声明 v2.21 → FAIL 档；未声明 → 报告档（不追溯存量）')
+    else:
+        r.fail('记录类档位异常：strict=%s report=%s' % (vs, vr))
+
+def check_preflight(r):
+    """㉑ 开批预检的行为自测（方案 §3.2）：用**真实批次48 夹具**钉死验收数字。
+
+    为什么必须钉在真实夹具上：预检的价值就是"在注入之前说出闸门将要说什么"。
+    如果只用合成样本，改了闸门口径而预检悄悄跟不上，自检照样全绿——那正是它要防的事。
+    期望值抄自批次48 会话导出里的首跑闸门输出：★ 签名缺口 3 个、密度连段 5 处（8/10/10/8/10）。
+    """
+    sys.path.insert(0, HERE)
+    import batch_preflight as P          # noqa: E402
+    import lecture_checks as LC          # noqa: E402
+    import contextlib                    # noqa: E402
+
+    missing = LC.unknown_contract_ids()
+    if missing:
+        r.fail('预检规则 ID 指向了 SSOT 里不存在的条款：%s' % '、'.join(missing))
+    else:
+        r.ok('预检规则 ID 全部能在 spec/00-质量契约.json 找到对应条款')
+
+    fix = os.path.join(ROOT, 'tests', 'fixtures', 'batch48')
+    src = os.path.join(fix, 'project')
+    if not os.path.isdir(src):
+        r.fail('缺回归夹具 %s（预检的验收数字钉在真实批次48 上，夹具不能缺）' % src)
+        return
+
+    def run(plan_name):
+        out = tempfile.mktemp(suffix='.json')
+        argv = ['batch_preflight.py', '--src', src, '--plan', os.path.join(fix, plan_name),
+                '--manifest', os.path.join(fix, 'b48_manifest.json'), '--json', out]
+        old = sys.argv
+        sys.argv = argv
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                rc = P.main()
+        finally:
+            sys.argv = old
+        data = json.load(io.open(out, encoding='utf-8'))
+        os.unlink(out)
+        return rc, {c['id']: c for c in data['checks']}
+
+    rc, checks = run('b48_inject_plan_r1.json')
+    sig = checks['P-SIG']
+    density = checks['P-DENSITY']
+    methods = {'appendRow', 'sanitizeCell', 'appendSeparator'}
+    hit = {m for m in methods if m in json.dumps(sig, ensure_ascii=False)}
+    if rc != 0 and sig['status'] == LC.FAIL and hit == methods and len(density['findings']) == 5:
+        r.ok('预检：批次48 首轮计划 → ★ 签名缺口 3（%s）+ 密度连段 5 处（与当时闸门一致）'
+             % '、'.join(sorted(methods)))
+    else:
+        r.fail('预检与批次48 实录不符：rc=%s sig=%s(%s) density_findings=%d'
+               % (rc, sig['status'], sorted(hit), len(density['findings'])))
+
+    rc2, checks2 = run('b48_inject_plan_fixed.json')
+    if rc2 == 0 and checks2['P-DENSITY']['status'] == LC.PASS and checks2['P-SIG']['status'] == LC.PASS:
+        r.ok('预检：修复后的计划 → 0 缺口（PASS），且核验对象数 %d/%d 不为 0'
+             % (checks2['P-DENSITY']['checked'], checks2['P-SIG']['checked']))
+    else:
+        r.fail('预检对修复后计划仍报 FAIL（rc=%s）——预检与闸门口径已经不一致' % rc2)
+
+    # P-HASH 必须要求清单**覆盖计划里的全部源文件**（2.30 修复，批次49 实录）。
+    # 当时 4 个源文件各出一份清单、只传一份 → 清单里那 1 个文件哈希正确 → P-HASH PASS，
+    # 而本批另外 3 个源文件根本没被钉住："清单里有的都合格"被当成了"本批源码都核过"。
+    full = os.path.join(fix, 'b48_manifest.json')
+    tmp_thin = tempfile.mktemp(suffix='.json')
+    man = json.load(io.open(full, encoding='utf-8'))
+    keep = sorted(man['files'])[0]
+    man['files'] = {keep: man['files'][keep]}
+    io.open(tmp_thin, 'w', encoding='utf-8', newline='').write(json.dumps(man, ensure_ascii=False))
+    out = tempfile.mktemp(suffix='.json')
+    old = sys.argv
+    sys.argv = ['batch_preflight.py', '--src', src, '--plan', os.path.join(fix, 'b48_inject_plan_fixed.json'),
+                '--manifest', tmp_thin, '--json', out]
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            rc_thin = P.main()
+    finally:
+        sys.argv = old
+    thin_checks = {c['id']: c for c in json.load(io.open(out, encoding='utf-8'))['checks']}
+    os.unlink(out)
+    os.unlink(tmp_thin)
+    blob = json.dumps(thin_checks['P-HASH'], ensure_ascii=False)
+    if rc_thin != 0 and thin_checks['P-HASH']['status'] == LC.FAIL and '没覆盖' in blob:
+        r.ok('预检：清单只覆盖 1/8 源文件 → P-HASH FAIL 并逐个点名缺件（缺件不能当通过）')
+    else:
+        r.fail('清单缺件竟然放过：rc=%s status=%s'
+               % (rc_thin, thin_checks['P-HASH']['status']))
+
+    try:
+        LC.make_check('P-DENSITY', LC.PASS, checked=0)
+        r.fail('结果 schema 允许「0 对象 PASS」——真空通过会重新长出来')
+    except ValueError:
+        r.ok('结果 schema：检查对象为 0 不许写 PASS（真空通过被封堵）')
+
+
+def check_slots(r):
+    """㉒ 稳定源码槽位与可重复构建（方案 §3.3）：幂等、hash 漂移拒绝、旧分片降级告警。
+
+    为什么钉在"幂等 + 拒绝"这两条上：第48批的返工正是"重注入后旧占位串消失，只能靠类声明消歧猜块"
+    （一次猜错就要重写）；而"源文件改了却照旧套行号"会静默制造 ① 保真 FAIL。两条都必须可机械复现。
+    """
+    sys.path.insert(0, HERE)
+    import inject_source as INJ          # noqa: E402
+    import new_batch as NB               # noqa: E402
+    import contextlib                    # noqa: E402
+
+    fix = os.path.join(ROOT, 'tests', 'fixtures', 'batch48')
+    src = os.path.join(fix, 'project')
+    if not os.path.isdir(src):
+        r.fail('缺回归夹具 %s（槽位自测钉在真实批次48 上）' % src)
+        return
+    tmp = tempfile.mkdtemp(prefix='slot_selfcheck_')
+    try:
+        skeleton = os.path.join(tmp, 'skeleton.md')
+        lec = os.path.join(tmp, '批次48.md')
+        state_path = os.path.join(tmp, 'batch.json')
+        old = sys.argv
+        sys.argv = ['new_batch.py', '--stage', '3', '--batch', '48', '--title', 'x', '--classes', 'y',
+                    '--sha', '16984b9', '--out', lec, '--skeleton', skeleton, '--src', src,
+                    '--plan', os.path.join(fix, 'b48_inject_plan_fixed.json'),
+                    '--batch-json', state_path]
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                NB.main()
+        finally:
+            sys.argv = old
+        state = json.load(io.open(state_path, encoding='utf-8'))
+        text = io.open(skeleton, encoding='utf-8').read()
+        if text.count('<!-- src-slot') == 8 and len(state['slots']) == 8:
+            r.ok('槽位：按注释计划为 8 件各生成一个稳定槽位（ID 含源文件 sha256 前 8 位）')
+        else:
+            r.fail('槽位生成数不对：标记 %d 个 / 计划 %d 个（都应为 8）'
+                   % (text.count('<!-- src-slot'), len(state['slots'])))
+            return
+
+        # 2.30 修复：骨架与终稿必须**两个不同文件**，且注释计划只有一份可编辑的（批次49 实录：
+        # 两者同路径 + annotations 指回原始计划 + 手补槽位，让"重建"退化成就地改旧正文）。
+        if (os.path.normcase(state['skeleton']) != os.path.normcase(state['out'])
+                and os.path.isfile(state['annotations'])
+                and os.path.normcase(state['annotations']) != os.path.normcase(state['plan_source'])
+                and state.get('annotations_slots') == 8):
+            r.ok('槽位：batch.json 里骨架 ≠ 终稿、注释计划只有一份（含 8 个槽位）')
+        else:
+            r.fail('batch.json 配置不合格：skeleton=%s out=%s annotations=%s slots=%s'
+                   % (state['skeleton'], state['out'], state['annotations'],
+                      state.get('annotations_slots')))
+
+        same = dict(state)
+        same['out'] = same['skeleton']                     # 造"就地重建"的配置
+        try:
+            import batch_build as BB                        # noqa: E402
+            with contextlib.redirect_stdout(io.StringIO()):
+                BB.build(same)
+            r.fail('skeleton==out 竟然被放行——"省略分片也能重建"的假象会复发')
+        except SystemExit as exc:
+            if '同一个路径' in str(exc):
+                r.ok('槽位：skeleton==out（就地重建）被拒绝，并给出改法')
+            else:
+                r.fail('skeleton==out 拒绝理由不对：%s' % str(exc)[:90])
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            rc1 = INJ.main_with(['inject_source.py', skeleton, str(state['annotations']), '--src', src])
+        first = io.open(skeleton, 'rb').read()
+        with contextlib.redirect_stdout(io.StringIO()):
+            rc2 = INJ.main_with(['inject_source.py', skeleton, str(state['annotations']), '--src', src])
+        if rc1 == 0 and rc2 == 0 and io.open(skeleton, 'rb').read() == first:
+            r.ok('槽位：重复注入逐字节幂等（同一计划连注两次，文件 hash 不变）')
+        else:
+            r.fail('槽位注入不幂等：rc=%s/%s，文件是否变化=%s'
+                   % (rc1, rc2, io.open(skeleton, 'rb').read() != first))
+
+        # 缺分片不许借"旧内容"通过：⑥ 的分片被删掉时，⑥ 仍是骨架里的模板占位原文 → 必须拒绝
+        parts_dir = os.path.join(tmp, 'parts')
+        shutil.copytree(os.path.join(fix, 'parts'), parts_dir)
+        os.unlink(os.path.join(parts_dir, 'b48_part_6.md'))
+        gap = dict(state)
+        gap['parts_dir'] = parts_dir
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                BB.build(gap)
+            r.fail('缺 ⑥ 分片竟然通过了构建——"旧正文冒充重建结果"会复发')
+        except SystemExit as exc:
+            if '模板占位原文' in str(exc):
+                r.ok('槽位：缺分片 → 拒绝构建并点名"仍是模板占位原文"的节')
+            else:
+                r.fail('缺分片的拒绝理由不对：%s' % str(exc)[:90])
+
+        drifted = os.path.join(tmp, 'src')
+        shutil.copytree(src, drifted)
+        victim = os.path.join(drifted, state['slots'][0]['src'])
+        io.open(victim, 'a', encoding='utf-8', newline='').write('\n// drift\n')
+        before = io.open(skeleton, 'rb').read()
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                INJ.main_with(['inject_source.py', skeleton, str(state['annotations']), '--src', drifted])
+            r.fail('槽位：源文件 hash 变了却照样写入——"悄悄把旧行号套到改过的源码上"会复发')
+        except SystemExit as exc:
+            unchanged = io.open(skeleton, 'rb').read() == before
+            if 'hash' in str(exc) and unchanged:
+                r.ok('槽位：源文件 hash 变化 → 拒绝写入且原文件未动（不降级成旧寻址）')
+            else:
+                r.fail('槽位 hash 护栏异常：拒绝理由=%s，文件未改动=%s' % (str(exc)[:80], unchanged))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def check_structured_result(r):
+    """㉓ 结构化门禁结果与盖章闭环（方案 §3.4）。
+
+    钉三件事：① `--json` 出来的结果带**稳定规则 ID / 契约版本 / 被检查正文的哈希**；
+    ② **0 对象的检查不许写 PASS**（真空通过在结果里必须可见为 `NOT_CHECKED`）；
+    ③ 结果只能给**它检查过的那份正文**盖章——正文一变，`validate_result` 必须报错。
+    """
+    sys.path.insert(0, HERE)
+    import lecture_checks as LC          # noqa: E402
+    import gate_lecture as G             # noqa: E402  （只为读 GATE_VERSION）
+
+    sample = os.path.join(ROOT, 'examples', '黄金样例.md')
+    if not os.path.isfile(sample):
+        r.fail('缺样本 %s（结构化结果自测需要一份仓库内可跑的文件）' % sample)
+        return
+    tmp = tempfile.mkdtemp(prefix='result_selfcheck_')
+    try:
+        jout = os.path.join(tmp, 'result.json')
+        p = subprocess.run([sys.executable, os.path.join(HERE, 'gate_lecture.py'), sample,
+                            '--src', ROOT, '--json', jout],
+                           capture_output=True, text=True, encoding='utf-8', errors='replace')
+        if not os.path.isfile(jout):
+            r.fail('gate_lecture --json 没写出结果文件（rc=%s）：%s' % (p.returncode, (p.stderr or '')[:200]))
+            return
+        data = json.load(io.open(jout, encoding='utf-8'))
+        problems = []
+        if data.get('schema_version') != LC.SCHEMA_VERSION:
+            problems.append('schema_version=%r' % data.get('schema_version'))
+        if str(data.get('contract_version')) != G.GATE_VERSION:
+            problems.append('契约版本 %r ≠ gate %s' % (data.get('contract_version'), G.GATE_VERSION))
+        if data.get('lecture_sha256') != LC.sha256_file(sample):
+            problems.append('lecture_sha256 与文件不符')
+        vacuous = [c['id'] for c in data.get('checks', []) if c['status'] == LC.PASS and not c['checked']]
+        if vacuous:
+            problems.append('0 对象却写 PASS：%s' % vacuous)
+        if bool(data.get('pass')) != (p.returncode == 0):
+            problems.append('结构化 pass=%s 与退出码 %s 不一致' % (data.get('pass'), p.returncode))
+        if not all(c.get('id') for c in data.get('checks', [])):
+            problems.append('存在没有规则 ID 的检查项')
+        if problems:
+            r.fail('结构化结果不合规：%s' % '；'.join(problems))
+        else:
+            ids = [c['id'] for c in data['checks']]
+            r.ok('结构化结果：%d 条检查全部带稳定规则 ID / 契约 v%s / 正文哈希，且无「0 对象 PASS」'
+                 % (len(ids), data['contract_version']))
+
+        stale = LC.validate_result(data, expect_lecture_sha256='0' * 64,
+                                   expect_contract_version=G.GATE_VERSION,
+                                   required_ids=['G-STRUCT'])
+        if any('正文在检查之后被改过' in x for x in stale):
+            r.ok('盖章前置校验：正文哈希不符 → 拒绝（旧结果不得给改动过的正文背书）')
+        else:
+            r.fail('正文哈希不符却未报错：%s' % stale)
+        miss = LC.validate_result(data, expect_lecture_sha256=data['lecture_sha256'],
+                                 expect_contract_version=G.GATE_VERSION,
+                                 required_ids=['G-NOT-A-REAL-CHECK'])
+        if any('缺少必需检查' in x for x in miss):
+            r.ok('盖章前置校验：结果缺少必需检查项 → 拒绝')
+        else:
+            r.fail('缺少必需检查项却未报错：%s' % miss)
+
+        # 顶层结论字段必须参与校验：只按 checks[] 判会放过"自述失败却被各项写成 PASS"的结果
+        forged = json.loads(json.dumps(data, ensure_ascii=False))
+        for c in forged['checks']:
+            c['status'] = LC.PASS
+            c['checked'] = c.get('checked') or 1
+        forged['pass'] = False
+        forged['pass_'] = False
+        forged['verdict'] = '总判定: FAIL'
+        bad = LC.validate_result(forged, expect_lecture_sha256=data['lecture_sha256'],
+                                expect_contract_version=G.GATE_VERSION)
+        if any('pass' in x for x in bad) and any('verdict' in x for x in bad):
+            r.ok('盖章前置校验：顶层 pass/pass_/verdict 自述失败 → 拒绝（不被各项 PASS 骗过）')
+        else:
+            r.fail('顶层结论字段未参与盖章校验（失败结果可能被盖章）：%s' % bad)
+
+        # 缺字段与取值不合格同等对待（审查第三轮：删掉整段结论字段就能溜过去）
+        stripped = json.loads(json.dumps(forged, ensure_ascii=False))
+        for field in ('pass', 'pass_', 'verdict'):
+            stripped.pop(field, None)
+        gone = LC.validate_result(stripped, expect_lecture_sha256=data['lecture_sha256'],
+                                  expect_contract_version=G.GATE_VERSION)
+        if all(any(('缺少顶层结论字段 %s' % f) in x for x in gone)
+               for f in ('pass', 'pass_', 'verdict')):
+            r.ok('盖章前置校验：结果整段缺少 pass/pass_/verdict → 拒绝（缺字段不等于合格）')
+        else:
+            r.fail('缺少结论字段的结果未被拒绝：%s' % gone)
+
+        # verdict 只认确切写法（审查第四轮：`BYPASS` 曾因"包含 PASS"被判通过）
+        lookalike = json.loads(json.dumps(forged, ensure_ascii=False))
+        lookalike['verdict'] = 'BYPASS'
+        lookalike['pass'] = True
+        lookalike['pass_'] = True
+        bad_verdict = LC.validate_result(lookalike, expect_lecture_sha256=data['lecture_sha256'],
+                                         expect_contract_version=G.GATE_VERSION)
+        if any('verdict' in x for x in bad_verdict) and not LC.verdict_is_pass('BYPASS'):
+            r.ok('盖章前置校验：verdict=`BYPASS` 之类含 PASS 的文本 → 拒绝（只认 PASS / 总判定: PASS）')
+        else:
+            r.fail('verdict 判定过宽：BYPASS 被当作通过（%s）' % bad_verdict)
+
+        # ── 2.30 修复：判据版本门只有一个口径（批次49 实录："盖章前 PASS、盖章后失败"）──
+        # 旧 `style_scope` 只认「判据 vX.Y」，认不出 ⑯ 的规范字段「**判据版本：v2.30**」：
+        # 首跑判报告档（缺口只报不判红），盖章写进表头「判据 v2.30」后同一份正文升 FAIL 档。
+        pre = ['## ⑯ 教材质量自检', '',
+               '**判据版本：v2.30**（本批按此版判据验收；判据变更见 references/第一册质量细则.md §6.6）。']
+        post = (['## ⑯ 教材质量自检',
+                 '**七组闸门实测**（判据 v2.30，结构化结果 schema v1，无阻塞项）**：', '',
+                 '| 规则 ID | 检查组 | 核验对象 | 结论 |', '|---|---|---|---|',
+                 '| `G-STRUCT` | ⓪ 结构 | 17 | 通过 |', '',
+                 '> 本表由 `scripts/sync_gate_result.py` 从**结构化结果**渲染；判据版本 v2.30。']
+                + pre[1:])
+        scopes = [(G.style_scope, 3), (G.core_scope, 2), (G.form_scope, 2), (G.snip_scope, 2)]
+        mismatch = [f.__name__ for f, n in scopes if f(pre)[:n] != f(post)[:n]]
+        strict_pre = G.style_scope(pre)
+        if not mismatch and strict_pre[:3] == (True, True, True):
+            r.ok('版本门：⑯ 的规范版本字段被识别，首次门禁与盖章后档位一致（⓪e/⓪f 不再"盖后才变红"）')
+        else:
+            r.fail('版本门口径不一致：%s；style_scope(未盖章)=%s' % (mismatch, strict_pre))
+        if G.style_scope(['## ⑯ 教材质量自检', '', '| 1 | ✅ |'])[3] is None:
+            r.ok('版本门：⑯ 没写版本 → 报告档（存量不追溯），不会凭空判红')
+        else:
+            r.fail('⑯ 没写版本却拿到了版本号——版本门又出现了第二个来源')
+
+        # 第二次收紧：规范声明**之后的说明文字不得覆盖它**（批次49 复查实录——补一句
+        # "历史判据 v2.17 仅供对照"曾把同一处 ⑦ 缺口从 FAIL 档降回报告档，rc 1 → 0）
+        hist = pre + ['', '（历史判据 v2.17 仅供对照；本节数字仍按上面声明的那一版核对。）']
+        if G.style_scope(hist)[:3] == G.style_scope(pre)[:3] == (True, True, True):
+            r.ok('版本门：规范声明后补「历史判据 v2.17」不降档（声明不被后续说明覆盖）')
+        else:
+            r.fail('历史版本说明覆盖了声明：%s vs %s' % (G.style_scope(pre), G.style_scope(hist)))
+
+        # ⑨ 八股讲解（2.31 · SSOT S25 · G-KNOW）：合格样本要 PASS，缺落点/条数不足要判得出来
+        good = ['## ⑨ 八股讲解（本批涉及的面试与工程常识）', '']
+        for _i in range(1, 7):
+            good += ['**考点 %d**' % _i, '', '- **【考点】** 面试官会怎么问 %d' % _i,
+                     '- **【一句话定义】** 标准答法', '- **【为什么考】** 考的是边界处理能力【外部事实】',
+                     '- **【本批落点】** `6.%d` 的 `:L%d`' % (_i, 40 + _i), '']
+        good += ['**本批八股速查表**', '', '| 考点 | 一句话答 | 本批落点 |', '|---|---|---|',
+                 '| 切分策略 | 固定/递归/语义 | `6.1 :L41` |']
+        kn_good = G.check_know('\n'.join(good))
+        kn_bad = G.check_know('\n'.join(['## ⑨ 八股讲解', '', '- **【考点】** 只有一条', '']))
+        kn_old = G.check_know('\n'.join(['## ⑨ No-Framework 等价实现', '', '手写版骨架', '']))
+        if (kn_good['items'] == 6 and not kn_good['missing'] and kn_good['link'] and kn_good['table']
+                and kn_good['items'] > kn_bad['items'] and kn_bad['missing'] and kn_old['legacy']):
+            r.ok('⑨ 八股讲解判据：四段齐全 + 回链本批 + 速查表 = 合格；只有考点 / 旧 No-Framework 判得出来')
+        else:
+            r.fail('⑨ 八股讲解判据失准：good=%s ｜ bad=%s ｜ legacy=%s'
+                   % ({k: kn_good[k] for k in ('items', 'missing', 'link', 'table')},
+                      {k: kn_bad[k] for k in ('items', 'missing')}, kn_old['legacy']))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def check_publish(r):
+    """㉔ 发布器的"先验后写"闭环（方案 §3.5）：冲突时一个文件都不许动，重复发布零变化。
+
+    为什么必须自测：发布器要写的是**用户的项目文件**（覆盖矩阵/总索引/阶段页/状态）。
+    它出错的形态不是"报错"，而是"写到一半停下"——留下互相矛盾的半套状态，比不写更糟。
+    所以这里在临时项目里跑一次真发布：先冲突（断言零写入），再成功（断言幂等 + 用户改动保留）。
+    """
+    sys.path.insert(0, HERE)
+    import publish_batch as PB          # noqa: E402
+    import lecture_checks as LC         # noqa: E402
+    import contextlib                   # noqa: E402
+
+    tmp = tempfile.mkdtemp(prefix='publish_selfcheck_')
+    try:
+        root = os.path.join(tmp, 'proj')
+        os.makedirs(os.path.join(root, 'NOTES'))
+        io.open(os.path.join(root, 'NOTES', '覆盖矩阵.md'), 'w', encoding='utf-8', newline='').write(
+            '# 覆盖矩阵\n\n| 文件 | 状态 |\n|---|---|\n| 旧件 | 已讲 |\n\n'
+            '## 版本台账\n\n| 批次 | 判据 |\n|---|---|\n| 批次49 | 判据 v2.30 |\n')
+        io.open(os.path.join(root, 'NOTES', '状态.md'), 'w', encoding='utf-8', newline='').write(
+            '# 状态\n\n下一批：阶段3批次47\n')
+        lec = os.path.join(root, 'NOTES', '批次48.md')
+        io.open(lec, 'w', encoding='utf-8', newline='').write('# 批次48\n\n正文。\n')
+        final = os.path.join(root, 'NOTES', 'b48.final.json')
+
+        def healthy_final(**override):
+            rec = {"pass": True, "exit_code": 0, "rolled_back": False,
+                   "stamp_did_not_break_anything": True,
+                   "contract_version": LC.load_contract()["version"],
+                   "final_lecture_sha256": LC.sha256_file(lec)}
+            rec.update(override)
+            io.open(final, 'w', encoding='utf-8', newline='').write(
+                json.dumps(rec, ensure_ascii=False))
+
+        healthy_final()
+
+        def record(targets):
+            return {"schema_version": 1, "project_root": root, "batch_id": "stage3-b48",
+                    "batch_no": 48, "next_batch": "stage3-b49", "title": "x", "book": 1,
+                    "lecture": "NOTES/批次48.md", "gate_final": "NOTES/b48.final.json",
+                    "teaching": [{"file": "rag/A.java", "role": "主讲"}], "targets": targets}
+
+        good = [{"file": "NOTES/覆盖矩阵.md", "op": "insert_before_anchor", "anchor": "| 旧件 | 已讲 |",
+                 "idempotent_key": "批次48", "text": "| rag/A.java | 已讲（阶段3批次48） |"},
+                {"file": "NOTES/状态.md", "op": "replace_anchor", "anchor": "下一批：阶段3批次47",
+                 "expect": "阶段3批次47", "idempotent_key": "下一批：阶段3批次49",
+                 "text": "下一批：阶段3批次49"}]
+        rec_path = os.path.join(tmp, 'record.json')
+
+        def run(rec, extra=('--apply',)):
+            io.open(rec_path, 'w', encoding='utf-8', newline='').write(json.dumps(rec, ensure_ascii=False))
+            argv, old = sys.argv, sys.argv
+            sys.argv = ['publish_batch.py', '--record', rec_path] + list(extra)
+            try:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    return PB.main()
+            finally:
+                sys.argv = old
+
+        def snap():
+            return {f: io.open(os.path.join(root, 'NOTES', f), encoding='utf-8').read()
+                    for f in ('覆盖矩阵.md', '状态.md')}
+
+        before = snap()
+        bad = record([good[0], dict(good[1], anchor='这一行不存在')])
+        rc_bad = run(bad)
+        if rc_bad != 0 and snap() == before:
+            r.ok('发布器：第二个目标冲突 → 中止且**两个文件都没动**（不留半套状态）')
+        else:
+            r.fail('发布器冲突处理异常：rc=%s，文件是否变动=%s' % (rc_bad, snap() != before))
+
+        rc_ok = run(record(good))
+        after = snap()
+        if rc_ok == 0 and '阶段3批次48' in after['覆盖矩阵.md'] and '阶段3批次49' in after['状态.md']:
+            r.ok('发布器：全部校验通过后才写入，覆盖矩阵与状态同时更新')
+        else:
+            r.fail('发布器写入失败：rc=%s' % rc_ok)
+        rc_again = run(record(good))
+        if rc_again == 0 and snap() == after:
+            r.ok('发布器：重复发布零变化（idempotent_key 命中即跳过）')
+        else:
+            r.fail('发布器不幂等：重复发布改动了文件')
+        bad_hash = record(good)
+        bad_hash['lecture_sha256'] = '0' * 64
+        if run(bad_hash) != 0 and snap() == after:
+            r.ok('发布器：讲义哈希不符 → 拒绝发布且原文件不动')
+        else:
+            r.fail('发布器未拒绝哈希不符的记录')
+
+        # 同一文件的多条更新必须**串行叠加**（原实现每条都从磁盘原文起算 → 只留最后一条）
+        multi = record([
+            {"file": "NOTES/状态.md", "op": "ensure_line", "idempotent_key": "批次48 已完成",
+             "text": "- 批次48 已完成"},
+            {"file": "NOTES/状态.md", "op": "replace_anchor", "anchor": "下一批：阶段3批次49",
+             "expect": "阶段3批次49", "idempotent_key": "下一批：阶段3批次50",
+             "text": "下一批：阶段3批次50"},
+        ])
+        if run(multi) == 0:
+            text = io.open(os.path.join(root, 'NOTES', '状态.md'), encoding='utf-8').read()
+            if '- 批次48 已完成' in text and '下一批：阶段3批次50' in text:
+                r.ok('发布器：同一文件的两条更新都落盘（按文件分组、串行叠加）')
+            else:
+                r.fail('发布器：同一文件的多条更新互相覆盖了 → %r' % text[-80:])
+        else:
+            r.fail('发布器：同一文件的多条更新执行失败')
+
+        # ── 回修已发布行（update_line，实现模型在批次49 反馈的通道缺口）──
+        # 判据 2.30 → 2.31 之后，派生视图里行内还印着旧版本号；旧 op 表达不了这件事：
+        # `replace_anchor` 用旧行当锚点，回修一次后锚点消失 → 重复运行必报冲突（回修不幂等）。
+        repair = record([{"file": "NOTES/覆盖矩阵.md", "op": "update_line", "anchor": "| 批次49 |",
+                          "expect": "| 批次49 | 判据 v2.30 |", "text": "| 批次49 | 判据 v2.31 |",
+                          "idempotent_key": "批次49"}])          # key 必然已在文件中（回修对象已发布）
+        rc_rep = run(repair)
+        mtx = lambda: io.open(os.path.join(root, 'NOTES', '覆盖矩阵.md'), encoding='utf-8').read()
+        if rc_rep == 0 and '| 批次49 | 判据 v2.31 |' in mtx():
+            r.ok('发布器：回修已发布行（判据 v2.30 → v2.31）落盘，且不被 idempotent_key 误跳过')
+        else:
+            r.fail('发布器：update_line 未生效（rc=%s）→ 回修只能另写一次性脚本' % rc_rep)
+        after_rep = snap()
+        if run(repair) == 0 and snap() == after_rep:
+            r.ok('发布器：重复回修零变化（幂等按**目标行现状**判，不靠 idempotent_key）')
+        else:
+            r.fail('发布器：回修通道不幂等——第二次运行改动了文件或报冲突')
+        before_bad = snap()
+        for tag, bad in (
+                ('expect 抄错（写成子串而非整行）',
+                 {"anchor": "| 批次49 |", "expect": "判据 v2.31", "text": "| 批次49 | 判据 v2.32 |"}),
+                ('anchor 回修后不再命中（幂等不可判定）',
+                 {"anchor": "判据 v2.31", "expect": "| 批次49 | 判据 v2.31 |",
+                  "text": "| 批次49 | 判据 2.31（新版） |"}),
+                ('缺 expect',
+                 {"anchor": "| 批次49 |", "text": "| 批次49 | 判据 v2.32 |"}),
+                ('text 含换行（一次要改多行）',
+                 {"anchor": "| 批次49 |", "expect": "| 批次49 | 判据 v2.31 |", "text": "a\nb"})):
+            t = {"file": "NOTES/覆盖矩阵.md", "op": "update_line"}
+            t.update(bad)
+            if run(record([t])) != 0 and snap() == before_bad:
+                r.ok('发布器回修护栏：%s → 中止且一个文件都不动' % tag)
+            else:
+                r.fail('发布器回修护栏失效：%s 仍被接受（盲改已发布内容 / 幂等不可判定）' % tag)
+        # 包入口链接到的兼容指南应解释第五种 op；完整字段合同仍由手册权威说明。
+        man = io.open(os.path.join(ROOT, 'spec', '操作手册-闸门与工具.md'), encoding='utf-8').read()
+        skill = io.open(os.path.join(ROOT, 'SKILL.md'), encoding='utf-8').read()
+        index = io.open(os.path.join(ROOT, 'references', 'README.md'), encoding='utf-8').read()
+        advanced_path = os.path.join(ROOT, 'references', 'legacy-and-advanced-workflows.md')
+        advanced = io.open(advanced_path, encoding='utf-8').read()
+        stale = [name for name, txt in (('手册', man), ('SKILL', skill)) if 'op 四种' in txt]
+        entry_reaches_guide = ('references/README.md' in skill
+                               and 'legacy-and-advanced-workflows.md' in index)
+        if (PB.OPS[-1] == 'update_line' and 'update_line' in man and 'update_line' in advanced
+                and entry_reaches_guide and not stale):
+            r.ok('发布器：update_line 可从包入口到达，字段合同由闸门手册说明')
+        else:
+            r.fail('发布器兼容说明不可达：OPS[-1]=%s ｜ 手册有=%s ｜ 兼容指南有=%s ｜ 包入口到指南=%s ｜ 仍写「op 四种」=%s'
+                   % (PB.OPS[-1], 'update_line' in man, 'update_line' in advanced,
+                      entry_reaches_guide, stale or '无'))
+
+        # 发布入口必须核对**完整结论**：最终记录 pass=true 但退出码非 0 / 标记已回滚都不许发布
+        before_final = io.open(final, encoding='utf-8').read()
+        for tag, override in (('exit_code=1', {"exit_code": 1, "stamp_did_not_break_anything": False}),
+                              ('rolled_back=true', {"rolled_back": True,
+                                                    "stamp_did_not_break_anything": False})):
+            healthy_final(**override)
+            if run(record(good)) != 0:
+                r.ok('发布器：最终记录 %s → 拒绝发布（未通过的批次不得发布）' % tag)
+            else:
+                r.fail('发布器：最终记录 %s 仍被接受——发布入口的结论校验有缺口' % tag)
+        # 缺字段与取值不合格同等对待（审查第三轮：删掉字段就能溜过去）
+        for field in ('contract_version', 'stamp_did_not_break_anything'):
+            keep = dict(json.loads(before_final))
+            keep.pop(field, None)
+            io.open(final, 'w', encoding='utf-8', newline='').write(
+                json.dumps(keep, ensure_ascii=False))
+            if run(record(good)) != 0:
+                r.ok('发布器：最终记录缺 %s → 拒绝发布（缺字段不等于合格）' % field)
+            else:
+                r.fail('发布器：最终记录缺 %s 仍被接受——字段存在性未校验' % field)
+        # 类型冒充同样必须拒绝（审查第四轮：`exit_code=true`、`pass=1`、`rolled_back=0`）
+        for field, value in (('exit_code', True), ('exit_code', '0'), ('pass', 1),
+                             ('stamp_did_not_break_anything', 1), ('rolled_back', 0)):
+            healthy_final(**{field: value})
+            if run(record(good)) != 0:
+                r.ok('发布器：最终记录 %s=%r（类型冒充）→ 拒绝发布' % (field, value))
+            else:
+                r.fail('发布器：最终记录 %s=%r 仍被接受——类型未严格校验' % (field, value))
+        io.open(final, 'w', encoding='utf-8', newline='').write(before_final)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def main():
+    print('=' * 88)
+    print('技能文档一致性自检（skill_selfcheck.py）  根目录:', ROOT)
+    print('=' * 88)
+    r = Report()
+    print('\n① 判据版本号')
+    check_version(r)
+    print('\n② ⑤ 用法与接入标记（SKILL / 模板 / gate 三处一致）')
+    check_markers(r)
+    print('\n③ 17 节骨架与 §6 概要指向')
+    check_sections(r)
+    print('\n④ 作废写法扫描')
+    check_deprecated(r)
+    print('\n⑤ 交叉引用与文件引用')
+    check_refs(r)
+    print('\n⑥ SSOT 对账（spec/00-质量契约.json ↔ SKILL ↔ 模板 ↔ gate/工具）')
+    check_ssot(r)
+    print('\n⑦ 工具随技能发布（V3 / H17）：无孤儿 + 依赖符号存在')
+    check_tools(r)
+    print('\n⑧ safe_edit 护栏负向自测（H14 / H19）')
+    check_safe_edit(r)
+    print('\n⑨ 新批次脚手架与模板同源（V4）')
+    check_new_batch(r)
+    print('\n⑩ 源码块注入器端到端自测（H17 / H18）')
+    check_inject_source(r)
+    print('\n⑪ ⑫ 内容深度判据自测（S12 / H20）+ 已知盲区钉桩')
+    check_vib_depth(r)
+    print('\n⑫ ② 反向完整度的 ★ 标题链兜底自测（2.13 / H23）+ 真空通过钉桩')
+    check_reverse_fallback(r)
+    print('\n⑬ ⑤ 件段边界自测（2.14 / H24）：后面小节的内容不许算进末件')
+    check_usage_boundary(r)
+    print('\n⑭ 一级节标题规范形态自测（2.15 / H25）：找不到段 = FAIL，不许静默跳过')
+    check_section_form(r)
+    print('\n⑮ ⑫ 回顾语判据自测（2.16 / H26）：从零构建视角，旧框架声明必命中、合规声明不误伤')
+    check_vib_retro(r)
+    print('\n⑯ ⓪b 每批必含内容自测（2.17 / H26）：① 图 / ⑦.1 编号链 / ⑧ L0-L3+省略段')
+    check_core_sections_sc(r)
+    print('\n⑰ ⓪c 教材自足与构造手法自测（2.18 / H26，报告档）')
+    check_pedagogy_sc(r)
+    print('\n⑱ 教材类文件判定自测（2.20）：不许「换语言就跳过结构判定」')
+    check_lecture_class_sc(r)
+    print('\n⑲ 记录类形态自测（2.21）：整理批/进行中记录也要自证状态')
+    check_record_shape_sc(r)
+    print('\n⑳ sync_gate_result 实测块替换幂等（2.29 / BUG-S1）：不许每跑一次堆一张旧表')
+    check_sync_idempotent(r)
+    print('\n㉑ 开批预检（方案 §3.2）：真实批次48 验收数字 + 清单必须覆盖全部源文件')
+    check_preflight(r)
+    print('\n㉒ 稳定源码槽位与可重复构建（方案 §3.3）：幂等 + hash 漂移拒绝 + 三条"假重建"护栏')
+    check_slots(r)
+    print('\n㉓ 结构化门禁结果与盖章闭环（方案 §3.4）：稳定 ID / 无真空 PASS / 哈希绑定 / 版本门同源')
+    check_structured_result(r)
+    print('\n㉔ 发布器先验后写（方案 §3.5）：冲突零写入 / 幂等 / 哈希绑定')
+    check_publish(r)
+    print('\n' + '=' * 88)
+    print('检查项 %d，失败 %d → %s' % (r.n, r.bad, 'PASS ✅' if r.bad == 0 else 'FAIL ❌'))
+    print('=' * 88)
+    return 1 if r.bad else 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

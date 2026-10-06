@@ -1,0 +1,141 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://project-deepdive.dev/schemas/v1/curriculum-v1.1.schema.json",
+  "title": "Project DeepDive v1.1 Outline Curriculum",
+  "description": "A source-identity-authenticated, deterministic, outline-only beginner curriculum; it is never a lesson-quality PASS.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "artifact_kind",
+    "schema_version",
+    "repository_revision",
+    "generated_at",
+    "snapshot_kind",
+    "source_metadata",
+    "source_status",
+    "source_run_manifest_sha256",
+    "phase4_inputs",
+    "prerequisite_inputs",
+    "candidate_input",
+    "learner_profile",
+    "status",
+    "units"
+  ],
+  "properties": {
+    "artifact_kind": {"const": "curriculum"},
+    "schema_version": {"const": "1.1.0"},
+    "repository_revision": {"type": "string", "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"},
+    "generated_at": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"},
+    "snapshot_kind": {"enum": ["worktree", "git-tree"]},
+    "source_metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["snapshot_kind", "g01_status", "unknown_files", "project_index_sha256", "coverage_sha256"],
+      "properties": {
+        "snapshot_kind": {"enum": ["worktree", "git-tree"]},
+        "g01_status": {"enum": ["PASS", "PARTIAL"]},
+        "unknown_files": {"type": "integer", "minimum": 0},
+        "project_index_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "coverage_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "source_status": {"enum": ["PASS", "PARTIAL"]},
+    "source_run_manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "phase4_inputs": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "artifact_kind", "schema_version", "sha256"],
+        "properties": {
+          "path": {"enum": ["evidence.json", "knowledge-graph.json", "semantic-proposals.json"]},
+          "artifact_kind": {"enum": ["evidence", "knowledge-graph", "semantic-proposals"]},
+          "schema_version": {"enum": ["1.0.0", "1.1.0", "1.2.0"]},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        }
+      }
+    },
+    "prerequisite_inputs": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "artifact_kind", "schema_version", "sha256"],
+        "properties": {
+          "path": {"enum": ["prerequisite-candidates.json", "prerequisite-graph.json"]},
+          "artifact_kind": {"enum": ["prerequisite-candidates", "prerequisite-graph"]},
+          "schema_version": {"const": "1.0.0"},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        }
+      }
+    },
+    "candidate_input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact_kind", "schema_version", "sha256"],
+      "properties": {
+        "artifact_kind": {"const": "curriculum-candidates"},
+        "schema_version": {"const": "1.0.0"},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "learner_profile": {"const": "BEGINNER"},
+    "status": {"const": "PARTIAL"},
+    "units": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "order",
+          "title",
+          "kind",
+          "scope",
+          "depth",
+          "content_status",
+          "epistemic_status",
+          "prerequisite_ids",
+          "introduces_concept_keys",
+          "requires_concept_keys",
+          "project_refs",
+          "origin"
+        ],
+        "properties": {
+          "id": {"type": "string", "pattern": "^CURRICULUM-(UNIT|PRIMER)-[0-9a-f]{64}$"},
+          "order": {"type": "integer", "minimum": 1},
+          "title": {"type": "string", "minLength": 1, "maxLength": 200},
+          "kind": {"enum": ["project-purpose", "prerequisite", "business", "workflow", "architecture", "source", "mechanism", "failure", "vibecoding", "extension", "interview"]},
+          "scope": {"enum": ["PROJECT_SPECIFIC", "GENERAL_LEARNING"]},
+          "depth": {"const": 1},
+          "content_status": {"const": "OUTLINE_ONLY"},
+          "epistemic_status": {"const": "UNVERIFIED_TEACHING"},
+          "prerequisite_ids": {"type": "array", "items": {"type": "string", "pattern": "^CURRICULUM-(UNIT|PRIMER)-[0-9a-f]{64}$"}},
+          "introduces_concept_keys": {"type": "array", "items": {"type": "string", "pattern": "^[a-z][a-z0-9._-]{0,63}$"}},
+          "requires_concept_keys": {"type": "array", "items": {"type": "string", "pattern": "^[a-z][a-z0-9._-]{0,63}$"}},
+          "project_refs": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["graph_node_ids", "graph_edge_ids", "evidence_ids", "file_paths"],
+            "properties": {
+              "graph_node_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
+              "graph_edge_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
+              "evidence_ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
+              "file_paths": {"type": "array", "items": {"type": "string", "minLength": 1}}
+            }
+          },
+          "origin": {"enum": ["CANDIDATE", "PREREQUISITE_PRIMER"]},
+          "unit_key": {"type": "string", "pattern": "^[a-z][a-z0-9._-]{0,63}$"},
+          "primer_concept_key": {"type": "string", "pattern": "^[a-z][a-z0-9._-]{0,63}$"},
+          "prerequisite_node_id": {"type": "string", "pattern": "^PREREQ-NODE-[0-9a-f]{64}$"},
+          "concept_epistemic_status": {"enum": ["E6_PROVISIONAL", "UNVERIFIED_TEACHING"]}
+        }
+      }
+    }
+  }
+}
